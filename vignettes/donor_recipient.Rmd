@@ -1,0 +1,102 @@
+---
+title: "Determining Donor and Recipient Cells"
+date: "2025-05-12"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Determining Donor and Recipient Cells}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Creating a new variantCell project
+
+If you haven't already done so, you can create a new project by using
+the command:
+
+```{r, eval=FALSE}
+#Create new variantCell object
+project <- variantCell$new()
+```
+
+to initialize the project.
+
+# Determining Donor / Recipient Cells in Single Cell Data
+
+If you need to identify which cells are donor or recipient, you can use
+the process_vireo_seurat helper function (below).
+
+```{r, eval=FALSE}
+#process vireo using Seurat metadata
+process_vireo_seurat = function(
+  seurat_obj,
+  vireo_path,
+  prefix_text
+)
+```
+
+Usage example:
+
+```{r, eval=FALSE}
+sample_donor_recipient <- vCell_project$process_vireo_seurat(
+    sample,
+    vireo_path  = "donor_ids.tsv",
+    prefix_text = "prefix_text_to_add_"
+)
+```
+
+This will provide output similar to below, indicating the matching cells
+in the metadata, and the cell type distribution for the donors
+identified by Vireo:
+
+> Initial cell identities in Seurat object:
+>
+> Sample1 1152 Seurat object cells: 1152 Total Vireo cells: 1661
+>
+> First few Seurat rownames: Patient1_AAACCCAAGTCTAGAA-1
+> Patient1_AAACGCTGTGGACAGT-1 Patient1_AAAGGATCAGTTGTTG-1
+> Patient1_AAAGGATTCCTCGCAT-1 Patient1_AAAGTCCAGCACTCCG-1
+> Patient1_AAAGTCCGTTGCATTG-1 First few metadata rownames:
+> Patient1_AAACCCAAGTCTAGAA-1 Patient1_AAACGCTGTGGACAGT-1
+> Patient1_AAAGGATCAGTTGTTG-1 Patient1_AAAGGATTCCTCGCAT-1
+> Patient1_AAAGGGCTCAAAGGTA-1 Patient1_AAAGTCCAGCACTCCG-1
+>
+> Number of matching cells: 1152
+
+> Cell type distribution for donor1:
+>
+> ```         
+>   Classical Monocyte        Differentiating T            Gamma Delta T        IGSF21+ Dendritic 
+>                   10                       34                       81                        9 
+>      Innate Lymphoid    Intermediate Monocyte               Macrophage                     MAIT 
+>                    4                        3                       29                        5 
+>                 Mast                 Memory B Myeloid Dendritic Type 1 Myeloid Dendritic Type 2 
+>                   13                       46                       10                       23 
+>              Naive B             Naive CD4+ T             Naive CD8+ T               Neutrophil 
+>                    1                       31                        2                        1 
+>                   NK    Nonclassical Monocyte OLR1+ Classical Monocyte                   Plasma 
+>                   14                       23                        2                       62 
+> ```
+>
+> Cell type distribution for donor0:
+>
+> ```         
+> Adventitial Fibroblast       Airway Smooth Muscle Alveolar Epithelial Type 1 Alveolar Epithelial Type 2 
+>                      5                          1                          3                          1 
+>    Alveolar Fibroblast                     Artery                      Basal                  Capillary 
+>                     13                         10                         16                         38 
+>     Capillary Aerocyte                   Ciliated      Differentiating Basal                     Goblet 
+>                      3                          3                          1                          1 
+>              Lymphatic           Microvasculature                     Mucous              Myofibroblast 
+>                      1                         11                          1                          3 
+>               Pericyte                     Plasma        Proliferating Basal             Proximal Basal 
+>                      6                          3                          2                          3 
+> Vascular Smooth Muscle                       Vein 
+>                      3                         11 
+> ```
+
+In this case, the donor cells can be identified as (likely) donor0 -
+with predominantly structural lung cells, while donor1, containing
+mostly immune cells, is the recipient. This will be used as input to the
+`addSampleData` function - to specify which donor is the
+recipient/donor. This process will need to be repeated for each sample
+to determine donor/recipient, based on cell type distributions.

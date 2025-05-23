@@ -1,0 +1,40 @@
+Package: variantCell
+Title: Single-Cell SNP Analysis with Focus on Organ Transplant
+Version: 0.1.0
+Authors@R: 
+    person("Andrew", "Potter", , "andrew.potter@cchmc.org", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-8218-3813"))
+Description: Analyzes single-cell SNP data with a focus on transplant settings. 
+    Works with single-cell genomics workflows to identify, characterize, 
+    and visualize SNPs at cellular resolution, enabling researchers to distinguish 
+    donor from recipient cells and quantify SNPs that may influence transplant outcomes.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    R6,
+    data.table,
+    Matrix,
+    ggplot2,
+    cowplot,
+    GenomicRanges,
+    IRanges,
+    AnnotationHub,
+    matrixStats,
+    ensembldb,
+    circlize,
+    ComplexHeatmap,
+    stats, 
+    methods
+Suggests:
+    Seurat,
+    SingleCellExperiment,
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0), 
+    parallel,
+    doParallel,
+    foreach
+Config/testthat/edition: 3
+VignetteBuilder: knitr
