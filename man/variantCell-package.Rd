@@ -23,6 +23,15 @@ recipient cells and quantify SNPs that may influence transplant outcomes.
 }
 }
 
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/cchmc/variantCell}
+  \item \url{https://cchmc.github.io/variantCell}
+  \item Report bugs at \url{https://github.com/cchmc/variantCell/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Andrew Potter \email{andrew.potter@cchmc.org} (\href{https://orcid.org/0000-0001-8218-3813}{ORCID})
 

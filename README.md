@@ -48,7 +48,7 @@ Check if devtools is installed, install if needed
 
 `if (!requireNamespace("devtools", quietly = TRUE)) { install.packages("devtools") }`
 
-`devtools::install_github("potterae/variantCell")`
+`devtools::install_github("cchmc/variantCell")`
 
 ## License
 

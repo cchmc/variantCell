@@ -1,5 +1,5 @@
 ---
-title: "Cell-level DE SNP Analsyis"
+title: "Cell-level DE SNP Analysis"
 author: "Andrew Potter"
 date: "2025-05-12"
 output: rmarkdown::html_vignette

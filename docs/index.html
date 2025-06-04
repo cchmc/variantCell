@@ -36,9 +36,9 @@
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="articles/build_snp_database.html">Building the SNP database</a></li>
-    <li><a class="dropdown-item" href="articles/cell_level_DE.html">Cell-level DE SNP Analsyis</a></li>
+    <li><a class="dropdown-item" href="articles/cell_level_DE.html">Cell-level DE SNP Analysis</a></li>
     <li><a class="dropdown-item" href="articles/donor_recipient.html">Determining Donor and Recipient Cells</a></li>
-    <li><a class="dropdown-item" href="articles/group_level_DE.html">Group-level DE SNP Analsyis</a></li>
+    <li><a class="dropdown-item" href="articles/group_level_DE.html">Group-level DE SNP Analysis</a></li>
   </ul>
 </li>
       </ul>
@@ -46,6 +46,7 @@
 <li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="search.json">
 </form></li>
+<li class="nav-item"><a class="nav-link" href="https://github.com/cchmc/variantCell/" aria-label="GitHub"><span class="fa fab fa-github fa-lg"></span></a></li>
       </ul>
 </div>
 
@@ -56,7 +57,7 @@
   <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header"><h1 id="variantcell-010---alpha-in-development">variantCell 0.1.0 - alpha (in development)<a class="anchor" aria-label="anchor" href="#variantcell-010---alpha-in-development"></a>
 </h1></div>
-<p><a href="https://potterae.github.io/variantCell/" class="external-link"><img src="https://img.shields.io/badge/docs-pkgdown-blue.svg" alt="Documentation"></a> <a href="https://opensource.org/licenses/MIT" class="external-link"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a> <a href=""><img src="https://img.shields.io/badge/Status-In%20Development-blue" alt="Status: In Development"></a></p>
+<p><a href="https://cchmc.github.io/variantCell/" class="external-link"><img src="https://img.shields.io/badge/docs-pkgdown-blue.svg" alt="Documentation"></a> <a href="https://opensource.org/licenses/MIT" class="external-link"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a> <a href=""><img src="https://img.shields.io/badge/Status-In%20Development-blue" alt="Status: In Development"></a></p>
 <p>A tool for analyzing single-cell SNP data with focus on organ transplant.</p>
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
@@ -78,7 +79,7 @@
 <div class="section level2">
 <h2 id="getting-started">Getting Started<a class="anchor" aria-label="anchor" href="#getting-started"></a>
 </h2>
-<p><strong>Documentation:</strong> <a href="https://potterae.github.io/variantCell/" class="external-link uri">https://potterae.github.io/variantCell/</a></p>
+<p><strong>Documentation:</strong> <a href="https://cchmc.github.io/variantCell/" class="external-link uri">https://cchmc.github.io/variantCell/</a></p>
 <p>To add samples to the SNP database, the package requires: - An output directory from CellSNP along with cell metadata (as a Seurat object, dataframe, or SingleCellExperiment) - Cell prefixes can be optionally specified when adding sample data to match cell IDs to integrated data</p>
 <p>For transplant mode, you’ll also need: - A Vireo output directory - Specification of which donors are ‘Recipient’ and ‘Donor’ (can be determined using the <code>process_vireo</code> helper function)</p>
 <p>After adding samples, a SNP database can be built using the <code>buildSNPDatabase</code> function, enabling:</p>
@@ -98,7 +99,7 @@
 <p>Install from GitHub</p>
 <p>Check if devtools is installed, install if needed</p>
 <p><code>if (!requireNamespace("devtools", quietly = TRUE)) { install.packages("devtools") }</code></p>
-<p><code>devtools::install_github("potterae/variantCell")</code></p>
+<p><code>devtools::install_github("cchmc/variantCell")</code></p>
 </div>
 <div class="section level2">
 <h2 id="license">License<a class="anchor" aria-label="anchor" href="#license"></a>
@@ -114,10 +115,18 @@
 <h2 id="citation">Citation<a class="anchor" aria-label="anchor" href="#citation"></a>
 </h2>
 <p>If you use this software, please cite:</p>
-<p>Andrew Potter, Don Hayes (in preparation). variantCell: A tool for single-cell SNP analysis. GitHub: <a href="https://github.com/potterae/variantCell" class="external-link uri">https://github.com/potterae/variantCell</a></p>
+<p>Andrew Potter, Don Hayes (in preparation). variantCell: A tool for single-cell SNP analysis. GitHub: <a href="https://cchmc.github.io/variantCell/" class="external-link uri">https://cchmc.github.io/variantCell/</a></p>
 </div>
 </div>
-  </main><aside class="col-md-3"><div class="license">
+  </main><aside class="col-md-3"><div class="links">
+<h2 data-toc-skip>Links</h2>
+<ul class="list-unstyled">
+<li><a href="https://github.com/cchmc/variantCell/">Browse source code</a></li>
+<li><a href="https://github.com/cchmc/variantCell/issues">Report a bug</a></li>
+</ul>
+</div>
+
+<div class="license">
 <h2 data-toc-skip>License</h2>
 <ul class="list-unstyled">
 <li>
