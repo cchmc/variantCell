@@ -1,6 +1,6 @@
 # variantCell 0.1.0 - alpha (in development)
 
-[![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://potterae.github.io/variantCell/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Status: In Development](https://img.shields.io/badge/Status-In%20Development-blue)]()
+[![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://cchmc.github.io/variantCell/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Status: In Development](https://img.shields.io/badge/Status-In%20Development-blue)]()
 
 A tool for analyzing single-cell SNP data with focus on organ transplant.
 
@@ -22,7 +22,7 @@ Seurat: If using Seurat objects as input (not required if using data frames), Si
 
 ## Getting Started
 
-**Documentation:** <https://potterae.github.io/variantCell/>
+**Documentation:** <https://cchmc.github.io/variantCell/>
 
 To add samples to the SNP database, the package requires: - An output directory from CellSNP along with cell metadata (as a Seurat object, dataframe, or SingleCellExperiment) - Cell prefixes can be optionally specified when adding sample data to match cell IDs to integrated data
 
@@ -62,4 +62,4 @@ Funding: Heart Institute, Cincinnati Children's Hospital Medical Center
 
 If you use this software, please cite:
 
-Andrew Potter, Don Hayes (in preparation). variantCell: A tool for single-cell SNP analysis. GitHub: <https://github.com/potterae/variantCell>
+Andrew Potter, Don Hayes (in preparation). variantCell: A tool for single-cell SNP analysis. GitHub: <https://cchmc.github.io/variantCell/>
