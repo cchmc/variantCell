@@ -395,7 +395,12 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #' Integrates SNP data, annotations, and cell metadata from all samples in the variantCell project
 #' into a unified database. This function creates merged sparse matrices for alternative allele (AD)
 #' and depth (DP) counts across all cells, combines cell metadata, annotates SNPs with genomic
-#' features, and calculates database-wide metrics.
+#' features, and calculates database-wide metrics. Optionally adds rsID numbers from VCF file reference.
+#'
+#'
+#' @param add_rs_ids Logical. Whether to add rs# identifiers from a reference VCF file. Default: FALSE.
+#' @param VCF_file_path Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation.
+#'   Required if add_rs_ids = TRUE.
 #'
 #' @return Invisibly returns self (the variantCell object) with the unified SNP database constructed
 #'   and stored in the snp_database field.
@@ -409,6 +414,7 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #' 5. If available, also creates a matrix of normalized counts
 #' 6. Calculates database-wide metrics for each SNP
 #' 7. Generates a QC report with summary statistics
+#' 8. Optionally, adds rsIDs
 #'
 #' The function handles the complexities of integrating data from multiple samples with
 #' potentially different sets of SNPs and metadata columns. It manages matrix indexing,
@@ -439,26 +445,37 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #' project$setProjectIdentity("cell_type")
 #' results <- project$findDESNPs(...)
 #' }
-variantCell$set("public",  "buildSNPDatabase", function() {
-  cat("Building unified SNP database...\n")
 
+variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_file_path = NULL) {
+  cat("Building unified SNP database...\n")
+  
   # Input validation
   if(length(self$samples) == 0) {
     stop("No samples added to database")
   }
-
+  
+  if(add_rs_ids) {
+    if(is.null(VCF_file_path)) {
+      stop("VCF_file_path must be provided when add_rs_ids = TRUE")
+    }
+    if(!file.exists(VCF_file_path)) {
+      stop(sprintf("VCF file not found: %s", VCF_file_path))
+    }
+    cat(sprintf("rs# annotation will be added from: %s\n", VCF_file_path))
+  }
+  
   # First pass: collect SNP info and cell counts
   cat("\nCollecting SNP information across samples...")
   all_snps <- list()
   total_cells <- 0
   cell_ids <- character(0)
   has_normalized <- FALSE  # Track if any samples have normalized data
-
+  
   # First loop: get SNP info and collect cell IDs
   for(sample_id in names(self$samples)) {
     sample <- self$samples[[sample_id]]
     snp_data <- sample$snp_data
-
+    
     all_snps[[sample_id]] <- data.frame(
       CHROM = snp_data$CHROM,
       POS = snp_data$POS,
@@ -468,25 +485,25 @@ variantCell$set("public",  "buildSNPDatabase", function() {
       snp_id = paste(snp_data$CHROM, snp_data$POS, snp_data$REF, snp_data$ALT, sep="_"),
       stringsAsFactors = FALSE
     )
-
+    
     cell_ids <- c(cell_ids, sample$metadata$cell_id)
     total_cells <- total_cells + length(sample$metadata$cell_id)
-
+    
     if(!is.null(sample$normalized_counts)) {
       has_normalized <- TRUE
     }
   }
-
+  
   all_snps_df <- do.call(rbind, all_snps)
   unique_snps <- unique(all_snps_df[, c("CHROM", "POS", "REF", "ALT", "snp_id")])
   snp_sample_counts <- table(all_snps_df$snp_id)
-
+  
   cat(sprintf("\nFound %d unique SNPs", nrow(unique_snps)))
-
+  
   # Get annotations
   cat("\nAnnotating SNPs...")
   snp_annotations <- self$annotate_snps(unique_snps)
-
+  
   # Initialize matrices
   combined_ad <- Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0),
                                       dims = c(nrow(unique_snps), total_cells),
@@ -496,26 +513,26 @@ variantCell$set("public",  "buildSNPDatabase", function() {
                                       dims = c(nrow(unique_snps), total_cells),
                                       dimnames = list(unique_snps$snp_id, cell_ids),
                                       giveCsparse = TRUE)
-
+  
   combined_dp_norm <- if(has_normalized) {
     Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0),
                          dims = c(nrow(unique_snps), total_cells),
                          dimnames = list(unique_snps$snp_id, cell_ids),
                          giveCsparse = TRUE)
   } else NULL
-
+  
   # Create a list to store all metadata first
   metadata_list <- list()
   all_columns <- unique(unlist(lapply(self$samples, function(x) colnames(x$metadata))))
-
+  
   cat("\nMetadata columns found across samples:")
   print(all_columns)
-
+  
   # Process metadata for each sample
   for(sample_id in names(self$samples)) {
     sample <- self$samples[[sample_id]]
     current_meta <- sample$metadata
-
+    
     # Add missing columns with NA
     missing_cols <- setdiff(all_columns, colnames(current_meta))
     if(length(missing_cols) > 0) {
@@ -525,12 +542,12 @@ variantCell$set("public",  "buildSNPDatabase", function() {
         current_meta[[col]] <- NA
       }
     }
-
+    
     # Ensure column order matches
     current_meta <- current_meta[, all_columns]
     metadata_list[[sample_id]] <- current_meta
   }
-
+  
   # Combine metadata with error handling
   tryCatch({
     unified_metadata <- do.call(rbind, metadata_list)
@@ -545,32 +562,32 @@ variantCell$set("public",  "buildSNPDatabase", function() {
     }
     stop("Failed to combine metadata: ", e$message)
   })
-
+  
   # Process each sample's SNP data
   for(sample_id in names(self$samples)) {
     sample <- self$samples[[sample_id]]
     cat(sprintf("\nProcessing sample %s (%d cells)...",
                 sample_id, ncol(sample$raw_metrics$ad_matrix)))
-
+    
     # Create SNP mapping
     snp_data <- sample$snp_data
     snp_data$snp_id <- paste(snp_data$CHROM, snp_data$POS, snp_data$REF, snp_data$ALT, sep="_")
     snp_map <- match(unique_snps$snp_id, snp_data$snp_id)
     valid_snps <- !is.na(snp_map)
-
+    
     if(sum(valid_snps) > 0) {
       # Get column indices
       col_idx <- match(sample$metadata$cell_id, colnames(combined_ad))
-
+      
       if(any(is.na(col_idx))) {
         stop(sprintf("Some cell IDs from sample %s not found in combined matrix", sample_id))
       }
-
+      
       # Update matrices
       tryCatch({
         combined_ad[which(valid_snps), col_idx] <- sample$raw_metrics$ad_matrix[snp_map[valid_snps], ]
         combined_dp[which(valid_snps), col_idx] <- sample$raw_metrics$dp_matrix[snp_map[valid_snps], ]
-
+        
         if(!is.null(sample$normalized_counts)) {
           combined_dp_norm[which(valid_snps), col_idx] <- sample$normalized_counts[snp_map[valid_snps], ]
         }
@@ -579,7 +596,7 @@ variantCell$set("public",  "buildSNPDatabase", function() {
       })
     }
   }
-
+  
   # Calculate database-wide metrics
   cat("\nCalculating database-wide metrics...")
   db_metrics <- data.frame(
@@ -596,7 +613,43 @@ variantCell$set("public",  "buildSNPDatabase", function() {
     n_samples = snp_sample_counts[unique_snps$snp_id],
     stringsAsFactors = FALSE
   )
-
+  
+  if(add_rs_ids) {
+    cat("\n==================================================")
+    cat("\nAdding rs# identifiers from reference VCF...")
+    cat("\n==================================================")                       
+    tryCatch({
+      # Call the rs# matching function
+      rs_ids <- private$match_rs_ids_internal(unique_snps, VCF_file_path)
+      
+      # Add rs# to snp_info, annotations, and metrics for consistency
+      unique_snps$rs_id <- rs_ids          # ADD THIS LINE
+      snp_annotations$rs_id <- rs_ids
+      db_metrics$rs_id <- rs_ids
+      
+      # Report rs# matching results
+      matched_rs <- sum(!is.na(rs_ids))
+      total_snps <- length(rs_ids)
+      cat(sprintf("\nrs# annotation results:"))
+      cat(sprintf("\n - Total SNPs: %d", total_snps))
+      cat(sprintf("\n - SNPs with rs# IDs: %d (%.1f%%)", matched_rs, (matched_rs/total_snps)*100))
+      cat(sprintf("\n - SNPs without rs# IDs: %d (%.1f%%)", total_snps - matched_rs, ((total_snps - matched_rs)/total_snps)*100))
+      
+    }, error = function(e) {
+      warning(sprintf("Failed to add rs# identifiers: %s", e$message))
+      cat("\nContinuing without rs# annotation...")
+      # Add empty rs_id columns
+      unique_snps$rs_id <- NA_character_    # ADD THIS LINE
+      snp_annotations$rs_id <- NA_character_
+      db_metrics$rs_id <- NA_character_
+    })
+  } else {
+    # Add empty rs_id columns for consistency
+    unique_snps$rs_id <- NA_character_      # ADD THIS LINE
+    snp_annotations$rs_id <- NA_character_
+    db_metrics$rs_id <- NA_character_
+  }
+  
   # Store results
   self$snp_database <- list(
     ad_matrix = combined_ad,
@@ -611,48 +664,140 @@ variantCell$set("public",  "buildSNPDatabase", function() {
       total_cells = total_cells,
       total_snps = nrow(unique_snps),
       has_normalized_data = has_normalized,
+      has_rs_ids = add_rs_ids,
+      rs_annotation_success = if(add_rs_ids) sum(!is.na(db_metrics$rs_id)) else 0,
       cells_per_sample = sapply(self$samples, function(x) ncol(x$raw_metrics$ad_matrix)),
       feature_distribution = table(snp_annotations$feature_type),
       biotype_distribution = table(snp_annotations$gene_type)
     )
   )
-
+  
   # Print summary
   cat("\n\nSNP database summary:")
   cat(sprintf("\nTotal samples: %d", length(self$samples)))
   cat(sprintf("\nTotal cells: %d", total_cells))
   cat(sprintf("\nTotal unique SNPs: %d", nrow(unique_snps)))
   cat(sprintf("\nNormalized counts available: %s", if(has_normalized) "Yes" else "No"))
+  if(add_rs_ids) {
+    cat(sprintf("\nrs# identifiers: %d (%.1f%% coverage)", 
+                self$snp_database$qc_report$rs_annotation_success,
+                (self$snp_database$qc_report$rs_annotation_success/nrow(unique_snps))*100))
+  }
   cat("\nFeature distribution:")
   print(table(snp_annotations$feature_type))
-
+  
   invisible(self)
 })
-variantCell$set("public",  "annotate_snps", function(snp_info,
-                                                     chunk_size = 5000,
-                                                     promoter_upstream = 2000,
-                                                     promoter_downstream = 200,
-                                                     cached_features = NULL) {
+
+# Add the internal rs# matching helper function
+variantCell$set("private", "match_rs_ids_internal", function(unique_snps, VCF_file_path) {
+  
+  require(data.table)
+  
+  # Create lookup using data.table for better performance
+  cat("Creating position lookup...\n")
+  project_positions <- unique(data.table(
+    CHROM = as.character(unique_snps$CHROM),
+    POS = as.integer(unique_snps$POS)
+  ))
+  
+  cat(sprintf("Looking for %d unique positions\n", nrow(project_positions)))
+  
+  # Read VCF file
+  cat("Reading VCF file...\n")
+  
+  if(grepl("\\.gz$", VCF_file_path)) {
+    con <- gzfile(VCF_file_path, "r")
+  } else {
+    con <- file(VCF_file_path, "r")
+  }
+  
+  # Read all lines
+  all_lines <- readLines(con)
+  close(con)
+  
+  # Remove header lines
+  data_lines <- all_lines[!startsWith(all_lines, "#")]
+  cat(sprintf("Found %d data lines in VCF\n", length(data_lines)))
+  
+  # Parse all VCF data at once using fread
+  cat("Parsing VCF data...\n")
+  vcf_data <- fread(text = paste(data_lines, collapse = "\n"))
+  colnames(vcf_data) <- c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO")
+  
+  # Ensure consistent data types
+  vcf_data$CHROM <- as.character(gsub("^chr", "", vcf_data$CHROM))
+  vcf_data$POS <- as.integer(vcf_data$POS)
+  
+  # Filter VCF to only positions of interest
+  cat("Filtering VCF to positions of interest...\n")
+  setkey(vcf_data, CHROM, POS)
+  setkey(project_positions, CHROM, POS)
+  
+  # Inner join to get only matching positions
+  matching_vcf <- vcf_data[project_positions, nomatch = 0]
+  
+  cat(sprintf("Found %d VCF records at target positions\n", nrow(matching_vcf)))
+  
+  if(nrow(matching_vcf) == 0) {
+    cat("No matching positions found!\n")
+    return(rep(NA_character_, nrow(unique_snps)))
+  }
+  
+  # Handle multi-allelic sites
+  cat("Processing multi-allelic sites...\n")
+  expanded_vcf <- matching_vcf[rep(1:nrow(matching_vcf), sapply(strsplit(matching_vcf$ALT, ","), length))]
+  alt_split <- unlist(strsplit(matching_vcf$ALT, ","))
+  expanded_vcf$ALT <- alt_split
+  
+  # Create match keys for final matching
+  expanded_vcf$match_key <- paste(expanded_vcf$CHROM, expanded_vcf$POS, 
+                                  expanded_vcf$REF, expanded_vcf$ALT, sep = "_")
+  unique_snps$match_key <- paste(unique_snps$CHROM, unique_snps$POS, 
+                                 unique_snps$REF, unique_snps$ALT, sep = "_")
+  
+  # Final matching
+  cat("Performing final SNP matching...\n")
+  vcf_dt <- data.table(expanded_vcf)
+  project_dt <- data.table(unique_snps)
+  
+  setkey(vcf_dt, match_key)
+  setkey(project_dt, match_key)
+  
+  matched_data <- vcf_dt[project_dt, on = "match_key"]
+  
+  # Clean rs# identifiers
+  matched_data$rs_id <- ifelse(matched_data$ID == "." | is.na(matched_data$ID), NA, matched_data$ID)
+  
+  # Return rs_ids in the same order as unique_snps
+  rs_ids <- matched_data$rs_id[match(unique_snps$match_key, matched_data$match_key)]
+  
+  return(rs_ids)
+})
+variantCell$set("public", "annotate_snps", function(snp_info,
+                                                    chunk_size = 5000,
+                                                    promoter_upstream = 2000,
+                                                    promoter_downstream = 200,
+                                                    cached_features = NULL) {
   require(GenomicRanges)
-  require(AnnotationHub)
-
+  require(IRanges)
+  require(EnsDb.Hsapiens.v86)  # Direct package instead of AnnotationHub
+  
   cat("\nInitializing SNP annotation...")
-
-  # Get EnsDb or use cached features
+  
+  # Get EnsDb directly instead of through AnnotationHub
   if(is.null(cached_features)) {
-    cat("\nAccessing AnnotationHub...")
-    ah <- AnnotationHub()
-    edb_query <- query(ah, c("EnsDb", "Homo sapiens", "104"))
-    edb <- edb_query[[1]]
-
-    # Get genomic features
+    cat("\nAccessing EnsDb.Hsapiens.v86...")
+    edb <- EnsDb.Hsapiens.v86  # Direct access
+    
+    # Get genomic features - rest of the code stays the same
     cat("\nRetrieving genomic features...")
     genes <- genes(edb)
     exons <- exons(edb)
     transcripts <- transcripts(edb)
     promoters <- promoters(genes, upstream = promoter_upstream,
                            downstream = promoter_downstream)
-
+    
     # Store features for reuse
     cached_features <- list(
       genes = genes,
@@ -667,7 +812,7 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
     transcripts <- cached_features$transcripts
     promoters <- cached_features$promoters
   }
-
+  
   # Create enhanced annotation data frame
   cat("\nInitializing annotation data frame...")
   annotations <- data.frame(
@@ -688,18 +833,18 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
     strand = NA_character_,
     stringsAsFactors = FALSE
   )
-
+  
   # Process in chunks
   n_chunks <- ceiling(nrow(snp_info) / chunk_size)
   cat(sprintf("\nProcessing %d SNPs in %d chunks...", nrow(snp_info), n_chunks))
-
+  
   for(i in 1:n_chunks) {
     start_idx <- ((i-1) * chunk_size) + 1
     end_idx <- min(i * chunk_size, nrow(snp_info))
-
+    
     cat(sprintf("\nProcessing chunk %d/%d (SNPs %d-%d)...",
                 i, n_chunks, start_idx, end_idx))
-
+    
     # Create GRanges for this chunk
     chunk_ranges <- GRanges(
       seqnames = snp_info$CHROM[start_idx:end_idx],
@@ -708,31 +853,31 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
         end = snp_info$POS[start_idx:end_idx]
       )
     )
-
+    
     # Find overlaps for this chunk
     exon_overlaps <- suppressWarnings(findOverlaps(chunk_ranges, exons))
     promoter_overlaps <- suppressWarnings(findOverlaps(chunk_ranges, promoters))
     gene_overlaps <- suppressWarnings(findOverlaps(chunk_ranges, genes))
     transcript_overlaps <- suppressWarnings(findOverlaps(chunk_ranges, transcripts))
-
+    
     # Process overlaps
     if(length(exon_overlaps) > 0) {
       chunk_indices <- queryHits(exon_overlaps) + start_idx - 1
       matched_exons <- exons[subjectHits(exon_overlaps)]
-
+      
       annotations$in_exon[chunk_indices] <- TRUE
       annotations$feature_type[chunk_indices] <- "exonic"
       annotations$exon_ids[chunk_indices] <- mcols(matched_exons)$exon_id
     }
-
+    
     if(length(promoter_overlaps) > 0) {
       chunk_indices <- queryHits(promoter_overlaps) + start_idx - 1
       matched_promoters <- promoters[subjectHits(promoter_overlaps)]
-
+      
       annotations$in_promoter[chunk_indices] <- TRUE
       promoter_mask <- annotations$feature_type[chunk_indices] == "intergenic"
       annotations$feature_type[chunk_indices[promoter_mask]] <- "promoter"
-
+      
       # Calculate distance to TSS
       tss_pos <- ifelse(strand(matched_promoters) == "+",
                         start(matched_promoters) + promoter_upstream,
@@ -740,11 +885,11 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
       annotations$promoter_distance[chunk_indices] <-
         abs(snp_info$POS[chunk_indices] - tss_pos)
     }
-
+    
     if(length(transcript_overlaps) > 0) {
       chunk_indices <- queryHits(transcript_overlaps) + start_idx - 1
       matched_transcripts <- transcripts[subjectHits(transcript_overlaps)]
-
+      
       annotations$in_transcript[chunk_indices] <- TRUE
       annotations$transcript_ids[chunk_indices] <- vapply(
         split(mcols(matched_transcripts)$tx_id, chunk_indices),
@@ -754,26 +899,26 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
     if(length(gene_overlaps) > 0) {
       chunk_indices <- queryHits(gene_overlaps) + start_idx - 1
       matched_genes <- genes[subjectHits(gene_overlaps)]
-
+      
       annotations$in_gene[chunk_indices] <- TRUE
       annotations$gene_id[chunk_indices] <- mcols(matched_genes)$gene_id
       annotations$gene_name[chunk_indices] <- mcols(matched_genes)$symbol
       annotations$gene_type[chunk_indices] <- mcols(matched_genes)$gene_biotype
       annotations$strand[chunk_indices] <- as.character(strand(matched_genes))
-
+      
       # Mark intronic SNPs
       intronic_mask <- annotations$feature_type[chunk_indices] == "intergenic" &
         !annotations$in_exon[chunk_indices] &
         !annotations$in_promoter[chunk_indices]
       annotations$feature_type[chunk_indices[intronic_mask]] <- "intronic"
     }
-
+    
     if(i %% 10 == 0 || i == n_chunks) {
       cat("\nCurrent feature distribution:")
       print(table(annotations$feature_type))
     }
   }
-
+  
   # Create detailed summary
   summary_stats <- list(
     total_snps = nrow(annotations),
@@ -793,7 +938,7 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
       total_promoter = sum(annotations$in_promoter)
     )
   )
-
+  
   # Print final summary
   cat("\n\nAnnotation complete.")
   cat("\nFinal feature distribution:")
@@ -801,11 +946,11 @@ variantCell$set("public",  "annotate_snps", function(snp_info,
   cat(sprintf("\nUnique genes with SNPs: %d", summary_stats$unique_genes))
   cat("\nGene biotype distribution:")
   print(summary_stats$biotype_distribution)
-
+  
   # Add summary as attribute
   attr(annotations, "summary") <- summary_stats
   # Add cached features as attribute for reuse
   attr(annotations, "cached_features") <- cached_features
-
+  
   return(annotations)
 })

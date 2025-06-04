@@ -1,6 +1,6 @@
 Package: variantCell
 Title: Single-Cell SNP Analysis with Focus on Organ Transplant
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: 
     person("Andrew", "Potter", , "andrew.potter@cchmc.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-8218-3813"))
@@ -20,21 +20,29 @@ Imports:
     cowplot,
     GenomicRanges,
     IRanges,
-    AnnotationHub,
+    S4Vectors,
     matrixStats,
     ensembldb,
+    EnsDb.Hsapiens.v86,
     circlize,
     ComplexHeatmap,
+    parallel,
+    doParallel,
+    foreach,
     stats, 
-    methods
+    methods,
+    utils
 Suggests:
     Seurat,
     SingleCellExperiment,
+    AnnotationHub,
+    dplyr,
+    tidyr,
+    patchwork,
+    pheatmap,
+    RColorBrewer,
     knitr,
     rmarkdown,
-    testthat (>= 3.0.0), 
-    parallel,
-    doParallel,
-    foreach
+    testthat (>= 3.0.0)
 Config/testthat/edition: 3
 VignetteBuilder: knitr

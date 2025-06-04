@@ -1,4 +1,3 @@
-
 #' @export
 variantCell <- R6Class("variantCell",
                        public = list(

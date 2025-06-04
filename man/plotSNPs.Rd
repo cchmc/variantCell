@@ -32,6 +32,8 @@ Set to 0 to show all SNPs regardless of alt fraction.}
 \item{color_scheme}{Vector. Named vector with "low" and "high" colors for alt fraction gradient.}
 
 \item{point_size_range}{Numeric vector of length 2. Range of point sizes (minimum and maximum) for depth representation.}
+
+\item{include_rs_ids}{Logical. Applies if data_out is set to true}
 }
 \value{
 If data_out = FALSE (default): Plot grid with main SNP visualization and optional density plots.

@@ -16,7 +16,7 @@ If NULL, uses all cells regardless of donor type.}
 
 \item{min_expr_cells}{Integer. Minimum number of expressing cells required in each group.}
 
-\item{min_alt_frac}{Numeric between 0 and 1. Minimum alternative allele fraction to consider a cell as expressing.}
+\item{min_alt_frac}{Numeric \link{0-1}. Minimum alternative allele fraction to consider a cell as expressing.}
 
 \item{logfc.threshold}{Numeric. Minimum absolute log2 fold-change required to report a SNP.}
 
@@ -35,14 +35,7 @@ If NULL, uses all cells regardless of donor type.}
 \item{n_cores}{Integer, optional. Number of CPU cores to use for parallel processing.
 If NULL, automatically uses detectCores() - 1.}
 
-\item{use_parallel}{Logical. Whether to implement parallel processing.}
-
-\item{chunk_size}{Integer.   Number of SNPs to process in each batch during parallel execution.
-Larger values may improve performance but require more memory.}
-
-\item{max_ram_gb}{Numeric.  Maximum RAM usage estimate in gigabytes for parallel processing.
-The function will automatically reduce chunk_size if estimated memory usage
-would exceed this limit.}
+\item{include_rs_ids}{Logical. If true, includes RS IDs}
 }
 \value{
 List containing:

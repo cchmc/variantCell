@@ -4,8 +4,7 @@
 \name{variantCell-package}
 \alias{variantCell}
 \alias{variantCell-package}
-\title{variantCell: Single-Cell SNP Analysis for Transplant Studies
-variantCell: A tool for analyzing single-cell SNP data with focus on organ transplant}
+\title{variantCell: Single-Cell SNP Analysis for Transplant Studies}
 \description{
 A tool for analyzing single-cell SNP data with focus on organ transplant.
 variantCell processes CellSNP and Vireo output to identify, characterize, and
@@ -17,9 +16,10 @@ recipient cells and quantify SNPs that may influence transplant outcomes.
 \itemize{
 \item Processing CellSNP and Vireo output data
 \item SNP identification and characterization across cell types
-\item Differential SNP analysis
+\item Differential SNP analysis with rs# identifier support
 \item Visualization of SNP distributions and patterns
 \item Integration with single-cell metadata
+\item VCF-based rs# annotation from reference databases
 }
 }
 

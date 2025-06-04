@@ -20,6 +20,8 @@ for a SNP to be considered present.}
 other group for a SNP to be considered absent there.}
 
 \item{return_all}{Logical. Whether to return all results regardless of significance.}
+
+\item{include_rs_ids}{Logical. Whether to include rs# identifiers in results if available.}
 }
 \value{
 List containing:

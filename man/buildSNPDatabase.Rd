@@ -3,6 +3,12 @@
 \name{buildSNPDatabase}
 \alias{buildSNPDatabase}
 \title{Build a unified SNP database from all samples}
+\arguments{
+\item{add_rs_ids}{Logical. Whether to add rs# identifiers from a reference VCF file. Default: FALSE.}
+
+\item{VCF_file_path}{Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation.
+Required if add_rs_ids = TRUE.}
+}
 \value{
 Invisibly returns self (the variantCell object) with the unified SNP database constructed
 and stored in the snp_database field.
@@ -11,7 +17,7 @@ and stored in the snp_database field.
 Integrates SNP data, annotations, and cell metadata from all samples in the variantCell project
 into a unified database. This function creates merged sparse matrices for alternative allele (AD)
 and depth (DP) counts across all cells, combines cell metadata, annotates SNPs with genomic
-features, and calculates database-wide metrics.
+features, and calculates database-wide metrics. Optionally adds rsID numbers from VCF file reference.
 }
 \details{
 This function performs several key steps:
@@ -23,6 +29,7 @@ This function performs several key steps:
 \item If available, also creates a matrix of normalized counts
 \item Calculates database-wide metrics for each SNP
 \item Generates a QC report with summary statistics
+\item Optionally, adds rsIDs
 }
 
 The function handles the complexities of integrating data from multiple samples with

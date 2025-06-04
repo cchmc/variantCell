@@ -14,7 +14,7 @@ if genes is provided instead.}
 
 \item{split.by}{Character, optional. Column name in metadata to use for secondary grouping/splitting.}
 
-\item{min_alt_frac}{Numeric between 0 and 1. Minimum alternative allele fraction required for a SNP to be
+\item{min_alt_frac}{Numeric \link{0-1}. Minimum alternative allele fraction required for a SNP to be
 counted as expressed in a cell. Default is 0.2.}
 
 \item{scale_data}{Logical. Whether to scale data by row for visualization. Default is TRUE.}
@@ -44,6 +44,12 @@ each group (TRUE) or only by expressing cells (FALSE). Default is TRUE.}
 
 \item{data_out}{Logical. Whether to return the underlying data matrices instead of the heatmap
 object. Default is FALSE.}
+
+\item{use_rs_ids}{Logical. Whether to use rs# identifiers for row labels when available.
+Default is TRUE. Falls back to chromosome:position format if rs# not available.}
+
+\item{rs_id_format}{Character. Format for rs# display: "rs_only" (just rs#), "rs_with_pos"
+(rs# with position), or "mixed" (rs# when available, otherwise position). Default is "mixed".}
 }
 \value{
 If data_out is FALSE (default), returns a ComplexHeatmap object that can be directly
@@ -75,9 +81,8 @@ The resulting heatmap includes annotation for gene names and feature types, with
 by gene. The heatmap uses a blue-to-red color scale for scaled expression values.
 }
 \examples{
-
+# Basic usage with default parameters
 \dontrun{
-
 project$plotSNPHeatmap(genes = "BRCA1", group.by = "cell_type")
 
 # Plot multiple genes with custom settings
@@ -96,7 +101,6 @@ snp_data <- project$plotSNPHeatmap(
   data_out = TRUE
 )
 }
-
 }
 \seealso{
 \code{\link{aggregateByGroup}} for aggregating SNP data by groups
