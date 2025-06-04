@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -123,9 +123,19 @@ normalization is performed, using total DP (SNP counts) for each cell.
 Downstream analysis can then optionally use the normalized SNP
 counts.</p>
 <p>After the samples have been added, you can build a unified SNP
-database by executing the function:</p>
-<p><code><a href="../reference/buildSNPDatabase.html">buildSNPDatabase()</a></code></p>
-<p>ie, <code>vCell_project$buildSNPDatabase()</code></p>
+database by executing the function: <code><a href="../reference/buildSNPDatabase.html">buildSNPDatabase()</a></code></p>
+<div class="section level4">
+<h4 id="basic-usage">Basic usage:<a class="anchor" aria-label="anchor" href="#basic-usage"></a>
+</h4>
+<p><code>vCell_project$buildSNPDatabase()</code></p>
+</div>
+<div class="section level4">
+<h4 id="with-rs-identifier-annotation">With rs# identifier annotation:<a class="anchor" aria-label="anchor" href="#with-rs-identifier-annotation"></a>
+</h4>
+<p>To include rs# identifiers from a reference VCF file (e.g., 1000
+Genomes), use: ```r vCell_project$buildSNPDatabase( add_rs_ids = TRUE,
+VCF_file_path = “path/to/reference.vcf” )</p>
+</div>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

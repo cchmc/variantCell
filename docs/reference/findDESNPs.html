@@ -11,7 +11,7 @@ at the single-cell level, with support for parallel processing to improve perfor
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -76,7 +76,7 @@ If NULL, uses all cells regardless of donor type.</p></dd>
 
 
 <dt id="arg-min-alt-frac">min_alt_frac<a class="anchor" aria-label="anchor" href="#arg-min-alt-frac"></a></dt>
-<dd><p>Numeric between 0 and 1. Minimum alternative allele fraction to consider a cell as expressing.</p></dd>
+<dd><p>Numeric 0-1. Minimum alternative allele fraction to consider a cell as expressing.</p></dd>
 
 
 <dt id="arg-logfc-threshold">logfc.threshold<a class="anchor" aria-label="anchor" href="#arg-logfc-threshold"></a></dt>
@@ -112,19 +112,8 @@ If NULL, uses all cells regardless of donor type.</p></dd>
 If NULL, automatically uses detectCores() - 1.</p></dd>
 
 
-<dt id="arg-use-parallel">use_parallel<a class="anchor" aria-label="anchor" href="#arg-use-parallel"></a></dt>
-<dd><p>Logical. Whether to implement parallel processing.</p></dd>
-
-
-<dt id="arg-chunk-size">chunk_size<a class="anchor" aria-label="anchor" href="#arg-chunk-size"></a></dt>
-<dd><p>Integer.   Number of SNPs to process in each batch during parallel execution.
-Larger values may improve performance but require more memory.</p></dd>
-
-
-<dt id="arg-max-ram-gb">max_ram_gb<a class="anchor" aria-label="anchor" href="#arg-max-ram-gb"></a></dt>
-<dd><p>Numeric.  Maximum RAM usage estimate in gigabytes for parallel processing.
-The function will automatically reduce chunk_size if estimated memory usage
-would exceed this limit.</p></dd>
+<dt id="arg-include-rs-ids">include_rs_ids<a class="anchor" aria-label="anchor" href="#arg-include-rs-ids"></a></dt>
+<dd><p>Logical. If true, includes RS IDs</p></dd>
 
 </dl></div>
     <div class="section level2">

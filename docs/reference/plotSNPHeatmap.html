@@ -13,7 +13,7 @@ heatmap shows expression patterns with gene-based row annotation and clustering 
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -75,7 +75,7 @@ if genes is provided instead.</p></dd>
 
 
 <dt id="arg-min-alt-frac">min_alt_frac<a class="anchor" aria-label="anchor" href="#arg-min-alt-frac"></a></dt>
-<dd><p>Numeric between 0 and 1. Minimum alternative allele fraction required for a SNP to be
+<dd><p>Numeric 0-1. Minimum alternative allele fraction required for a SNP to be
 counted as expressed in a cell. Default is 0.2.</p></dd>
 
 
@@ -128,6 +128,16 @@ each group (TRUE) or only by expressing cells (FALSE). Default is TRUE.</p></dd>
 <dd><p>Logical. Whether to return the underlying data matrices instead of the heatmap
 object. Default is FALSE.</p></dd>
 
+
+<dt id="arg-use-rs-ids">use_rs_ids<a class="anchor" aria-label="anchor" href="#arg-use-rs-ids"></a></dt>
+<dd><p>Logical. Whether to use rs# identifiers for row labels when available.
+Default is TRUE. Falls back to chromosome:position format if rs# not available.</p></dd>
+
+
+<dt id="arg-rs-id-format">rs_id_format<a class="anchor" aria-label="anchor" href="#arg-rs-id-format"></a></dt>
+<dd><p>Character. Format for rs# display: "rs_only" (just rs#), "rs_with_pos"
+(rs# with position), or "mixed" (rs# when available, otherwise position). Default is "mixed".</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -156,9 +166,8 @@ by gene. The heatmap uses a blue-to-red color scale for scaled expression values
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># Basic usage with default parameters</span></span></span>
 <span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPHeatmap</span><span class="op">(</span>genes <span class="op">=</span> <span class="st">"BRCA1"</span>, group.by <span class="op">=</span> <span class="st">"cell_type"</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Plot multiple genes with custom settings</span></span></span>
@@ -177,7 +186,6 @@ by gene. The heatmap uses a blue-to-red color scale for scaled expression values
 <span class="r-in"><span>  data_out <span class="op">=</span> <span class="cn">TRUE</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
-<span class="r-in"><span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

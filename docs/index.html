@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -56,7 +56,7 @@
   <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header"><h1 id="variantcell-010---alpha-in-development">variantCell 0.1.0 - alpha (in development)<a class="anchor" aria-label="anchor" href="#variantcell-010---alpha-in-development"></a>
 </h1></div>
-<p><a href="https://opensource.org/licenses/MIT" class="external-link"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a> <a href=""><img src="https://img.shields.io/badge/Status-In%20Development-blue" alt="Status: In Development"></a></p>
+<p><a href="https://potterae.github.io/variantCell/" class="external-link"><img src="https://img.shields.io/badge/docs-pkgdown-blue.svg" alt="Documentation"></a> <a href="https://opensource.org/licenses/MIT" class="external-link"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a> <a href=""><img src="https://img.shields.io/badge/Status-In%20Development-blue" alt="Status: In Development"></a></p>
 <p>A tool for analyzing single-cell SNP data with focus on organ transplant.</p>
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
@@ -78,6 +78,7 @@
 <div class="section level2">
 <h2 id="getting-started">Getting Started<a class="anchor" aria-label="anchor" href="#getting-started"></a>
 </h2>
+<p><strong>Documentation:</strong> <a href="https://potterae.github.io/variantCell/" class="external-link uri">https://potterae.github.io/variantCell/</a></p>
 <p>To add samples to the SNP database, the package requires: - An output directory from CellSNP along with cell metadata (as a Seurat object, dataframe, or SingleCellExperiment) - Cell prefixes can be optionally specified when adding sample data to match cell IDs to integrated data</p>
 <p>For transplant mode, you’ll also need: - A Vireo output directory - Specification of which donors are ‘Recipient’ and ‘Donor’ (can be determined using the <code>process_vireo</code> helper function)</p>
 <p>After adding samples, a SNP database can be built using the <code>buildSNPDatabase</code> function, enabling:</p>
