@@ -1,4 +1,4 @@
-# variantCell 0.1.0 - alpha (in development)
+# variantCell 0.1.1 - alpha (in development)
 
 [![Documentation](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://cchmc.github.io/variantCell/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Status: In Development](https://img.shields.io/badge/Status-In%20Development-blue)]()
 
