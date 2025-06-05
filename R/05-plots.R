@@ -783,317 +783,331 @@
 #' \code{\link{findSNPsByGroup}} for identifying differential SNPs between groups
 #' \code{\link{plotSNPs}} for visualizing SNP distribution along genomic regions
 
-variantCell$set("public", "plotSNPHeatmap", function(
-    genes = NULL,
-    snp_indices = NULL,
-    group.by,
-    split.by = NULL,
-    min_alt_frac = 0.2,
-    scale_data = TRUE,
-    max_scale = 2,
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    show_rownames = TRUE,
-    show_colnames = TRUE,
-    fontsize_row = 8,
-    fontsize_col = 8,
-    exclude_empty = TRUE,
-    normalize_by_cells = TRUE,
-    data_out = FALSE,
-    use_rs_ids = TRUE,           
-    rs_id_format = "mixed"       
-) {
-  
-  if(is.null(self$snp_database)) {
-    stop("SNP database not found. Run buildSNPDatabase first.")
-  }
-  
-  if(is.null(genes) && is.null(snp_indices)) {
-    stop("Must provide either genes or snp_indices")
-  }
-  
-  if(!group.by %in% colnames(self$snp_database$cell_metadata)) {
-    stop(sprintf("group.by column '%s' not found in metadata", group.by))
-  }
-  
-  if(!is.null(split.by) && !split.by %in% colnames(self$snp_database$cell_metadata)) {
-    stop(sprintf("split.by column '%s' not found in metadata", split.by))
-  }
-  
-  # Check if rs# IDs are available
-  has_rs_ids <- FALSE
-  if(use_rs_ids) {
-    if(!is.null(self$snp_database) && 
-       "snp_info" %in% names(self$snp_database) &&
-       "rs_id" %in% colnames(self$snp_database$snp_info)) {
-      has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
-    }
-    
-    if(!has_rs_ids && use_rs_ids) {
-      cat("Warning: rs# identifiers requested but not available in project. ")
-      cat("Using chromosome:position format instead.\n")
-    }
-  }
-  
-  # Get SNP indices if genes provided
-  if(!is.null(genes)) {
-    snp_indices <- which(self$snp_database$snp_annotations$gene_name %in% genes)
-    if(length(snp_indices) == 0) {
-      stop("No SNPs found for provided genes")
-    }
-  }
-  
-  # Get metadata
-  meta <- self$snp_database$cell_metadata
-  
-  # Function to calculate group stats for a specific SNP and cell group
-  calculate_group_stats <- function(snp_idx, cell_mask) {
-    # Get SNP data for this group
-    dp_vals <- self$snp_database$dp_matrix[snp_idx, cell_mask]
-    ad_vals <- self$snp_database$ad_matrix[snp_idx, cell_mask]
-    
-    # Calculate alt fractions where depth > 0
-    valid_mask <- dp_vals > 0
-    if(sum(valid_mask) == 0) {
-      return(list(mean_expr = 0, n_cells = 0, n_expr_cells = 0))
-    }
-    
-    alt_frac <- rep(0, length(dp_vals))
-    alt_frac[valid_mask] <- ad_vals[valid_mask] / dp_vals[valid_mask]
-    
-    # Get cells meeting alt fraction threshold
-    alt_mask <- alt_frac >= min_alt_frac
-    n_expr_cells <- sum(alt_mask)
-    if(n_expr_cells == 0) {
-      return(list(mean_expr = 0, n_cells = sum(cell_mask), n_expr_cells = 0))
-    }
-    
-    # Get expression values
-    if(is.null(self$snp_database$dp_matrix_normalized)) {
-      expr_vals <- dp_vals[alt_mask]
-    } else {
-      expr_vals <- self$snp_database$dp_matrix_normalized[snp_idx, cell_mask][alt_mask]
-    }
-    
-    # Calculate mean expression
-    total_expr <- sum(expr_vals)
-    if(normalize_by_cells) {
-      mean_expr <- total_expr / sum(cell_mask)  # Normalize by total cells in group
-    } else {
-      mean_expr <- total_expr / n_expr_cells  # Normalize only by expressing cells
-    }
-    
-    return(list(
-      mean_expr = mean_expr,
-      n_cells = sum(cell_mask),
-      n_expr_cells = n_expr_cells
-    ))
-  }
-  
-  # Create group combinations and calculate stats
-  if(!is.null(split.by)) {
-    group_combinations <- unique(paste(meta[[group.by]], meta[[split.by]], sep="_"))
-  } else {
-    group_combinations <- unique(meta[[group.by]])
-  }
-  
-  # Initialize matrices for expression and cell counts
-  group_matrix <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
-  cell_counts <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
-  expr_cell_counts <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
-  colnames(group_matrix) <- group_combinations
-  colnames(cell_counts) <- group_combinations
-  colnames(expr_cell_counts) <- group_combinations
-  
-  # Fill matrices
-  for(i in seq_along(group_combinations)) {
-    if(!is.null(split.by)) {
-      combo <- strsplit(group_combinations[i], "_")[[1]]
-      mask <- meta[[group.by]] == combo[1] & meta[[split.by]] == combo[2]
-    } else {
-      mask <- meta[[group.by]] == group_combinations[i]
-    }
-    
-    if(sum(mask) > 0) {
-      for(j in seq_along(snp_indices)) {
-        stats <- calculate_group_stats(snp_indices[j], mask)
-        group_matrix[j,i] <- stats$mean_expr
-        cell_counts[j,i] <- stats$n_cells
-        expr_cell_counts[j,i] <- stats$n_expr_cells
-      }
-    }
-  }
-  
-  # Filter out empty rows and columns if requested
-  if(exclude_empty) {
-    # Find non-empty rows and columns
-    non_empty_rows <- rowSums(expr_cell_counts) > 0
-    non_empty_cols <- colSums(expr_cell_counts) > 0
-    
-    if(sum(non_empty_rows) == 0 || sum(non_empty_cols) == 0) {
-      stop("No data remaining after filtering empty rows/columns")
-    }
-    
-    group_matrix <- group_matrix[non_empty_rows, non_empty_cols, drop=FALSE]
-    cell_counts <- cell_counts[non_empty_rows, non_empty_cols, drop=FALSE]
-    expr_cell_counts <- expr_cell_counts[non_empty_rows, non_empty_cols, drop=FALSE]
-    snp_indices <- snp_indices[non_empty_rows]
-  }
-  
-  # Create row labels with rs# IDs if available and requested
-  if(has_rs_ids && use_rs_ids) {
-    rs_ids <- self$snp_database$snp_info$rs_id[snp_indices]
-    
-    if(rs_id_format == "rs_only") {
-      # Use only rs# IDs, NA for those without
-      row_labels <- rs_ids
-      row_labels[is.na(row_labels)] <- paste(
-        self$snp_database$snp_info$CHROM[snp_indices[is.na(rs_ids)]],
-        self$snp_database$snp_info$POS[snp_indices[is.na(rs_ids)]],
-        sep=":"
-      )
-    } else if(rs_id_format == "rs_with_pos") {
-      # rs# with position for all
-      row_labels <- ifelse(
-        !is.na(rs_ids),
-        paste0(rs_ids, " (", 
-               self$snp_database$snp_info$CHROM[snp_indices], ":",
-               self$snp_database$snp_info$POS[snp_indices], ")"),
-        paste(
-          self$snp_database$snp_info$CHROM[snp_indices],
-          self$snp_database$snp_info$POS[snp_indices],
-          self$snp_database$snp_info$REF[snp_indices],
-          self$snp_database$snp_info$ALT[snp_indices],
-          sep="_"
-        )
-      )
-    } else { # "mixed" format (default)
-      # Use rs# when available, otherwise chr:pos_ref>alt
-      row_labels <- ifelse(
-        !is.na(rs_ids),
-        rs_ids,
-        paste(
-          self$snp_database$snp_info$CHROM[snp_indices],
-          self$snp_database$snp_info$POS[snp_indices],
-          self$snp_database$snp_info$REF[snp_indices],
-          self$snp_database$snp_info$ALT[snp_indices],
-          sep="_"
-        )
-      )
-    }
-  } else {
-    # Create original format labels
-    row_labels <- paste(
-      self$snp_database$snp_info$CHROM[snp_indices],
-      self$snp_database$snp_info$POS[snp_indices],
-      self$snp_database$snp_info$REF[snp_indices],
-      self$snp_database$snp_info$ALT[snp_indices],
-      sep="_"
-    )
-  }
-  
-  rownames(group_matrix) <- row_labels
-  
-  # Scale data if requested
-  if(scale_data) {
-    scaled_matrix <- t(scale(t(group_matrix)))
-    scaled_matrix[is.na(scaled_matrix)] <- 0
-    scaled_matrix <- pmin(pmax(scaled_matrix, -max_scale), max_scale)
-  } else {
-    scaled_matrix <- group_matrix
-  }
-  
-  # Return data if requested
-  if(data_out) {
-    snp_info_out <- data.frame(
-      snp_idx = snp_indices,
-      snp_id = row_labels,
-      gene = self$snp_database$snp_annotations$gene_name[snp_indices],
-      feature_type = self$snp_database$snp_annotations$feature_type[snp_indices],
-      chromosome = self$snp_database$snp_info$CHROM[snp_indices],
-      position = self$snp_database$snp_info$POS[snp_indices],
-      ref = self$snp_database$snp_info$REF[snp_indices],
-      alt = self$snp_database$snp_info$ALT[snp_indices],
-      stringsAsFactors = FALSE
-    )
-    
-    # Add rs# information if available
-    if(has_rs_ids) {
-      snp_info_out$rs_id <- self$snp_database$snp_info$rs_id[snp_indices]
-    }
-    
-    return(list(
-      raw_matrix = group_matrix,
-      scaled_matrix = scaled_matrix,
-      cell_counts = cell_counts,
-      expr_cell_counts = expr_cell_counts,
-      snp_info = snp_info_out
-    ))
-  }
-  
-  # Create color mapping
-  col_fun <- colorRamp2(
-    seq(-max_scale, max_scale, length = 7),
-    c("#053061", "#2166AC", "#4393C3", "#92C5DE", "#F4A582", "#D6604D", "#B2182B")
-  )
-  
-  # Create gene annotation
-  gene_names <- self$snp_database$snp_annotations$gene_name[snp_indices]
-  gene_types <- self$snp_database$snp_annotations$feature_type[snp_indices]
-  
-  # Create row split factor for genes
-  row_split <- factor(gene_names)
-  
-  # Create rs# annotation if available
-  left_annotations <- list(
-    Gene = gene_names,
-    Feature = gene_types,
-    "Cells" = anno_barplot(rowSums(expr_cell_counts))
-  )
-  
-  if(has_rs_ids && use_rs_ids) {
-    rs_status <- ifelse(!is.na(self$snp_database$snp_info$rs_id[snp_indices]), 
-                        "Has rs#", "No rs#")
-    left_annotations$"rs# Status" <- rs_status
-  }
-  
-  # Create the heatmap
-  ht <- Heatmap(
-    scaled_matrix,
-    name = "SNP Expression",
-    col = col_fun,
-    cluster_rows = cluster_rows,
-    cluster_columns = cluster_cols,
-    show_row_names = show_rownames,
-    show_column_names = show_colnames,
-    row_names_gp = gpar(fontsize = fontsize_row),
-    column_names_gp = gpar(fontsize = fontsize_col),
-    row_split = row_split,
-    row_gap = unit(2, "mm"),
-    left_annotation = do.call(rowAnnotation, c(left_annotations, list(
-      show_annotation_name = TRUE,
-      annotation_legend_param = list(
-        Gene = list(nrow = length(unique(gene_names))),
-        Feature = list(nrow = length(unique(gene_types)))
-      )
-    ))),
-    heatmap_legend_param = list(
-      title = if(scale_data) "Z-score" else "Expression",
-      title_position = "leftcenter-rot"
-    )
-  )
-  
-  # Print information about rs# usage
-  if(has_rs_ids && use_rs_ids) {
-    rs_count <- sum(!is.na(self$snp_database$snp_info$rs_id[snp_indices]))
-    total_snps <- length(snp_indices)
-    cat(sprintf("\nHeatmap created with rs# identifiers"))
-    cat(sprintf("\n - SNPs with rs# IDs: %d out of %d (%.1f%%)", 
-                rs_count, total_snps, (rs_count/total_snps)*100))
-    cat(sprintf("\n - rs# format: %s", rs_id_format))
-  } else if(use_rs_ids) {
-    cat("\nrs# identifiers requested but not available. Using chromosome:position format.")
-  }
-  
-  return(ht)
-})
+                   variantCell$set("public", "plotSNPHeatmap", function(
+                    genes = NULL,
+                    snp_indices = NULL,
+                    group.by,
+                    split.by = NULL,
+                    min_alt_frac = 0.2,
+                    scale_data = TRUE,
+                    max_scale = 2,
+                    cluster_rows = TRUE,
+                    cluster_cols = TRUE,
+                    show_rownames = TRUE,
+                    show_colnames = TRUE,
+                    fontsize_row = 8,
+                    fontsize_col = 8,
+                    exclude_empty = TRUE,
+                    normalize_by_cells = TRUE,
+                    data_out = FALSE,
+                    use_rs_ids = TRUE,           
+                    rs_id_format = "mixed"       
+                                   ) {
+                     
+                     # Define DittoSeq colors
+                     dittoColors <- c(
+                       "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", 
+                       "#D55E00", "#CC79A7", "#999999", "#E69F00", "#56B4E9", 
+                       "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7",
+                       "#000000", "#E31A1C", "#33A02C", "#FF7F00", "#6A3D9A",
+                       "#B15928", "#A6CEE3", "#1F78B4", "#B2DF8A", "#FB9A99"
+                     )
+                     
+                     if(is.null(self$snp_database)) {
+                       stop("SNP database not found. Run buildSNPDatabase first.")
+                     }
+                     
+                     if(is.null(genes) && is.null(snp_indices)) {
+                       stop("Must provide either genes or snp_indices")
+                     }
+                     
+                     if(!group.by %in% colnames(self$snp_database$cell_metadata)) {
+                       stop(sprintf("group.by column '%s' not found in metadata", group.by))
+                     }
+                     
+                     if(!is.null(split.by) && !split.by %in% colnames(self$snp_database$cell_metadata)) {
+                       stop(sprintf("split.by column '%s' not found in metadata", split.by))
+                     }
+                     
+                     # Check if rs# IDs are available
+                     has_rs_ids <- FALSE
+                     if(use_rs_ids) {
+                       if(!is.null(self$snp_database) && 
+                          "snp_info" %in% names(self$snp_database) &&
+                          "rs_id" %in% colnames(self$snp_database$snp_info)) {
+                         has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
+                       }
+                       
+                       if(!has_rs_ids && use_rs_ids) {
+                         cat("Warning: rs# identifiers requested but not available in project. ")
+                         cat("Using chromosome:position format instead.\n")
+                       }
+                     }
+                     
+                     # Get SNP indices if genes provided
+                     if(!is.null(genes)) {
+                       snp_indices <- which(self$snp_database$snp_annotations$gene_name %in% genes)
+                       if(length(snp_indices) == 0) {
+                         stop("No SNPs found for provided genes")
+                       }
+                     }
+                     
+                     # Get metadata
+                     meta <- self$snp_database$cell_metadata
+                     
+                     # Function to calculate group stats for a specific SNP and cell group
+                     calculate_group_stats <- function(snp_idx, cell_mask) {
+                       # Get SNP data for this group
+                       dp_vals <- self$snp_database$dp_matrix[snp_idx, cell_mask]
+                       ad_vals <- self$snp_database$ad_matrix[snp_idx, cell_mask]
+                       
+                       # Calculate alt fractions where depth > 0
+                       valid_mask <- dp_vals > 0
+                       if(sum(valid_mask) == 0) {
+                         return(list(mean_expr = 0, n_cells = 0, n_expr_cells = 0))
+                       }
+                       
+                       alt_frac <- rep(0, length(dp_vals))
+                       alt_frac[valid_mask] <- ad_vals[valid_mask] / dp_vals[valid_mask]
+                       
+                       # Get cells meeting alt fraction threshold
+                       alt_mask <- alt_frac >= min_alt_frac
+                       n_expr_cells <- sum(alt_mask)
+                       if(n_expr_cells == 0) {
+                         return(list(mean_expr = 0, n_cells = sum(cell_mask), n_expr_cells = 0))
+                       }
+                       
+                       # Get expression values
+                       if(is.null(self$snp_database$dp_matrix_normalized)) {
+                         expr_vals <- dp_vals[alt_mask]
+                       } else {
+                         expr_vals <- self$snp_database$dp_matrix_normalized[snp_idx, cell_mask][alt_mask]
+                       }
+                       
+                       # Calculate mean expression
+                       total_expr <- sum(expr_vals)
+                       if(normalize_by_cells) {
+                         mean_expr <- total_expr / sum(cell_mask)  # Normalize by total cells in group
+                       } else {
+                         mean_expr <- total_expr / n_expr_cells  # Normalize only by expressing cells
+                       }
+                       
+                       return(list(
+                         mean_expr = mean_expr,
+                         n_cells = sum(cell_mask),
+                         n_expr_cells = n_expr_cells
+                       ))
+                     }
+                     
+                     # Create group combinations and calculate stats
+                     if(!is.null(split.by)) {
+                       group_combinations <- unique(paste(meta[[group.by]], meta[[split.by]], sep="_"))
+                     } else {
+                       group_combinations <- unique(meta[[group.by]])
+                     }
+                     
+                     # Initialize matrices for expression and cell counts
+                     group_matrix <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
+                     cell_counts <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
+                     expr_cell_counts <- matrix(0, nrow=length(snp_indices), ncol=length(group_combinations))
+                     colnames(group_matrix) <- group_combinations
+                     colnames(cell_counts) <- group_combinations
+                     colnames(expr_cell_counts) <- group_combinations
+                     
+                     # Fill matrices
+                     for(i in seq_along(group_combinations)) {
+                       if(!is.null(split.by)) {
+                         combo <- strsplit(group_combinations[i], "_")[[1]]
+                         mask <- meta[[group.by]] == combo[1] & meta[[split.by]] == combo[2]
+                       } else {
+                         mask <- meta[[group.by]] == group_combinations[i]
+                       }
+                       
+                       if(sum(mask) > 0) {
+                         for(j in seq_along(snp_indices)) {
+                           stats <- calculate_group_stats(snp_indices[j], mask)
+                           group_matrix[j,i] <- stats$mean_expr
+                           cell_counts[j,i] <- stats$n_cells
+                           expr_cell_counts[j,i] <- stats$n_expr_cells
+                         }
+                       }
+                     }
+                     
+                     # Filter out empty rows and columns if requested
+                     if(exclude_empty) {
+                       # Find non-empty rows and columns
+                       non_empty_rows <- rowSums(expr_cell_counts) > 0
+                       non_empty_cols <- colSums(expr_cell_counts) > 0
+                       
+                       if(sum(non_empty_rows) == 0 || sum(non_empty_cols) == 0) {
+                         stop("No data remaining after filtering empty rows/columns")
+                       }
+                       
+                       group_matrix <- group_matrix[non_empty_rows, non_empty_cols, drop=FALSE]
+                       cell_counts <- cell_counts[non_empty_rows, non_empty_cols, drop=FALSE]
+                       expr_cell_counts <- expr_cell_counts[non_empty_rows, non_empty_cols, drop=FALSE]
+                       snp_indices <- snp_indices[non_empty_rows]
+                     }
+                     
+                     # Create row labels with rs# IDs if available and requested
+                     if(has_rs_ids && use_rs_ids) {
+                       rs_ids <- self$snp_database$snp_info$rs_id[snp_indices]
+                       
+                       if(rs_id_format == "rs_only") {
+                         # Use only rs# IDs, NA for those without
+                         row_labels <- rs_ids
+                         row_labels[is.na(row_labels)] <- paste(
+                           self$snp_database$snp_info$CHROM[snp_indices[is.na(rs_ids)]],
+                           self$snp_database$snp_info$POS[snp_indices[is.na(rs_ids)]],
+                           sep=":"
+                         )
+                       } else if(rs_id_format == "rs_with_pos") {
+                         # rs# with position for all
+                         row_labels <- ifelse(
+                           !is.na(rs_ids),
+                           paste0(rs_ids, " (", 
+                                  self$snp_database$snp_info$CHROM[snp_indices], ":",
+                                  self$snp_database$snp_info$POS[snp_indices], ")"),
+                           paste(
+                             self$snp_database$snp_info$CHROM[snp_indices],
+                             self$snp_database$snp_info$POS[snp_indices],
+                             self$snp_database$snp_info$REF[snp_indices],
+                             self$snp_database$snp_info$ALT[snp_indices],
+                             sep="_"
+                           )
+                         )
+                       } else { # "mixed" format (default)
+                         # Use rs# when available, otherwise chr:pos_ref>alt
+                         row_labels <- ifelse(
+                           !is.na(rs_ids),
+                           rs_ids,
+                           paste(
+                             self$snp_database$snp_info$CHROM[snp_indices],
+                             self$snp_database$snp_info$POS[snp_indices],
+                             self$snp_database$snp_info$REF[snp_indices],
+                             self$snp_database$snp_info$ALT[snp_indices],
+                             sep="_"
+                           )
+                         )
+                       }
+                     } else {
+                       # Create original format labels
+                       row_labels <- paste(
+                         self$snp_database$snp_info$CHROM[snp_indices],
+                         self$snp_database$snp_info$POS[snp_indices],
+                         self$snp_database$snp_info$REF[snp_indices],
+                         self$snp_database$snp_info$ALT[snp_indices],
+                         sep="_"
+                       )
+                     }
+                     
+                     rownames(group_matrix) <- row_labels
+                     
+                     # Scale data if requested
+                     if(scale_data) {
+                       scaled_matrix <- t(scale(t(group_matrix)))
+                       scaled_matrix[is.na(scaled_matrix)] <- 0
+                       scaled_matrix <- pmin(pmax(scaled_matrix, -max_scale), max_scale)
+                     } else {
+                       scaled_matrix <- group_matrix
+                     }
+                     
+                     # Return data if requested
+                     if(data_out) {
+                       snp_info_out <- data.frame(
+                         snp_idx = snp_indices,
+                         snp_id = row_labels,
+                         gene = self$snp_database$snp_annotations$gene_name[snp_indices],
+                         feature_type = self$snp_database$snp_annotations$feature_type[snp_indices],
+                         chromosome = self$snp_database$snp_info$CHROM[snp_indices],
+                         position = self$snp_database$snp_info$POS[snp_indices],
+                         ref = self$snp_database$snp_info$REF[snp_indices],
+                         alt = self$snp_database$snp_info$ALT[snp_indices],
+                         stringsAsFactors = FALSE
+                       )
+                       
+                       # Add rs# information if available
+                       if(has_rs_ids) {
+                         snp_info_out$rs_id <- self$snp_database$snp_info$rs_id[snp_indices]
+                       }
+                       
+                       return(list(
+                         raw_matrix = group_matrix,
+                         scaled_matrix = scaled_matrix,
+                         cell_counts = cell_counts,
+                         expr_cell_counts = expr_cell_counts,
+                         snp_info = snp_info_out
+                       ))
+                     }
+                     
+                     # Create color mapping for heatmap
+                     col_fun <- colorRamp2(
+                       seq(-max_scale, max_scale, length = 7),
+                       c("#053061", "#2166AC", "#4393C3", "#92C5DE", "#F4A582", "#D6604D", "#B2182B")
+                     )
+                     
+                     # Create gene annotation
+                     gene_names <- self$snp_database$snp_annotations$gene_name[snp_indices]
+                     gene_types <- self$snp_database$snp_annotations$feature_type[snp_indices]
+                     
+                     # Create named color vectors for annotations using DittoSeq colors
+                     unique_genes <- unique(gene_names)
+                     gene_colors <- setNames(dittoColors[1:length(unique_genes)], unique_genes)
+                     
+                     unique_features <- unique(gene_types)
+                     feature_colors <- setNames(dittoColors[1:length(unique_features)], unique_features)
+                     
+                     # Create row split factor for genes
+                     row_split <- factor(gene_names)
+                     
+                     # Build left annotations without rs# status
+                     left_annotations <- list(
+                       Gene = gene_names,
+                       Feature = gene_types,
+                       "Cells" = anno_barplot(rowSums(expr_cell_counts), which = "row")  
+                     )
+                     
+                     # Create the heatmap with DittoSeq colors for annotations
+                     ht <- Heatmap(
+                       scaled_matrix,
+                       name = "SNP Expression",
+                       col = col_fun,
+                       cluster_rows = cluster_rows,
+                       cluster_columns = cluster_cols,
+                       show_row_names = show_rownames,
+                       show_column_names = show_colnames,
+                       row_names_gp = gpar(fontsize = fontsize_row),
+                       column_names_gp = gpar(fontsize = fontsize_col),
+                       row_split = row_split,
+                       row_gap = unit(2, "mm"),
+                       left_annotation = do.call(rowAnnotation, c(left_annotations, list(
+                         show_annotation_name = TRUE,
+                         col = list(
+                           Gene = gene_colors,
+                           Feature = feature_colors
+                         ),
+                         annotation_legend_param = list(
+                           Gene = list(nrow = length(unique(gene_names))),
+                           Feature = list(nrow = length(unique(gene_types)))
+                         )
+                       ))),
+                       heatmap_legend_param = list(
+                         title = if(scale_data) "Z-score" else "Expression",
+                         title_position = "leftcenter-rot"
+                       )
+                     )
+                     
+                     # Print information about rs# usage
+                     if(has_rs_ids && use_rs_ids) {
+                       rs_count <- sum(!is.na(self$snp_database$snp_info$rs_id[snp_indices]))
+                       total_snps <- length(snp_indices)
+                       cat(sprintf("\nHeatmap created with rs# identifiers"))
+                       cat(sprintf("\n - SNPs with rs# IDs: %d out of %d (%.1f%%)", 
+                                   rs_count, total_snps, (rs_count/total_snps)*100))
+                       cat(sprintf("\n - rs# format: %s", rs_id_format))
+                     } else if(use_rs_ids) {
+                       cat("\nrs# identifiers requested but not available. Using chromosome:position format.")
+                     }
+                     
+                     return(ht)
+                   })
