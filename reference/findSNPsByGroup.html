@@ -11,7 +11,7 @@ group-specific genetic variants."></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -88,6 +88,12 @@ other group for a SNP to be considered absent there.</p></dd>
 <dt id="arg-include-rs-ids">include_rs_ids<a class="anchor" aria-label="anchor" href="#arg-include-rs-ids"></a></dt>
 <dd><p>Logical. Whether to include rs# identifiers in results if available.</p></dd>
 
+
+<dt id="arg-presence-score-weights">presence_score_weights<a class="anchor" aria-label="anchor" href="#arg-presence-score-weights"></a></dt>
+<dd><p>Numeric vector of length 3. Weights for calculating presence scores
+in sample-stratified mode: c(fold_change, sample_consistency, depth_reliability).
+Default: c(0.4, 0.3, 0.3). Weights should sum to 1.0.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -158,6 +164,7 @@ score = (alt_frac_present - alt_frac_absent) * (depth/min_depth) * (1 - alt_frac
 <span class="r-in"><span>  max_alt_frac_other <span class="op">=</span> <span class="fl">0.02</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+<span class="r-in"><span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
