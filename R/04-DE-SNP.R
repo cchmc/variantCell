@@ -1,4 +1,4 @@
-#' @title aggregateByGroup: Aggregate SNP data by cell groups
+#' @title aggregateByGroup: Group-Level SNP Data Aggregation
 #' @name aggregateByGroup
 #'
 #' @description
@@ -10,6 +10,10 @@
 #'
 #' @param group_by Character. Column name in metadata to use for grouping cells.
 #'                 Must be present in cell_metadata.
+#' @param sample_column Character. Column name in metadata to use for sample stratification.
+#'                     If NULL, operates in group-only mode. If specified, creates sample-aware
+#'                     aggregation that preserves sample-level information for statistical testing.
+#'                     Default: "sample_id".
 #' @param donor_type Character, optional. Specific donor type to analyze
 #'                   (e.g., "Donor" or "Recipient"). If NULL, uses all cells.
 #'                   Ignored in non-transplant mode.
@@ -51,162 +55,356 @@
 #'   in the metadata but are still included in the output matrices
 #'
 #' @examples
+#'
 #' \dontrun{
-#' # Basic usage - aggregate by cell type
+#' # Basic usage - aggregate by cell type (group-only mode)
 #' collapsed <- project$aggregateByGroup(
 #'   group_by = "cell_type",
+#'   sample_column = NULL,
+#'   use_normalized = TRUE
+#' )
+#'
+#' # Sample-stratified aggregation for statistical testing
+#' stratified_agg <- project$aggregateByGroup(
+#'   group_by = "disease_status",
+#'   sample_column = "patient_id",
+#'   donor_type = "Recipient",
 #'   use_normalized = TRUE
 #' )
 #'
 #' # Analyze only donor cells with stricter filtering
 #' donor_agg <- project$aggregateByGroup(
 #'   group_by = "cell_type",
+#'   sample_column = "sample_id",
 #'   donor_type = "Donor",
 #'   min_cells_per_group = 5
 #' )
-#'
-#' # Aggregate by disease status
-#' disease_agg <- project$aggregateByGroup(
-#'   group_by = "disease_status",
-#'   use_normalized = TRUE
-#' )
-#' }
-variantCell$set("public",  "aggregateByGroup", function(group_by,
-                                                        donor_type = NULL,
-                                                        min_cells_per_group = 3,
-                                                        use_normalized = TRUE) {
+#'}
+# Enhanced aggregateByGroup function with sample_column = NULL support
+# This modification allows direct group comparison without sample stratification
 
+variantCell$set("public", "aggregateByGroup", function(group_by,
+                                                       sample_column = "sample_id", 
+                                                       donor_type = NULL,
+                                                       min_cells_per_group = 3,
+                                                       use_normalized = TRUE) {
+  
   # Input validation
+  if(is.null(self$snp_database) || is.null(self$snp_database$cell_metadata)) {
+    stop("SNP database not properly initialized")
+  }
+  
   if(!group_by %in% colnames(self$snp_database$cell_metadata)) {
     stop(sprintf("Column '%s' not found in metadata", group_by))
   }
-
-  if(use_normalized && !("dp_matrix_normalized" %in% names(self$snp_database))) {
-    warning("Normalized counts requested but not available. Using raw counts.")
-    use_normalized <- FALSE
+  
+  # Modified validation for sample_column - allow NULL
+  if(!is.null(sample_column) && !sample_column %in% colnames(self$snp_database$cell_metadata)) {
+    stop(sprintf("Sample column '%s' not found in metadata", sample_column))
   }
-
-  # Get data
+  
+  if(use_normalized && !"dp_matrix_normalized" %in% names(self$snp_database)) {
+    stop("Normalized counts not available. Use aggregateByGroup with sample_column parameter.")
+  }
+  
+  # Validate numeric parameters
+  if(!is.numeric(min_cells_per_group) || min_cells_per_group < 0) {
+    stop("min_cells_per_group must be a non-negative integer")
+  }
+  
+  # Get metadata and matrices
   meta <- self$snp_database$cell_metadata
   ad_matrix <- self$snp_database$ad_matrix
   dp_matrix <- self$snp_database$dp_matrix
-  dp_matrix_norm <- if(use_normalized) self$snp_database$dp_matrix_normalized else NULL
-
+  if(use_normalized) {
+    dp_matrix_norm <- self$snp_database$dp_matrix_normalized
+  }
+  
+  # Validate matrix dimensions
+  if(ncol(ad_matrix) != nrow(meta) || ncol(dp_matrix) != nrow(meta)) {
+    stop("Matrix dimensions do not match metadata")
+  }
+  if(ncol(ad_matrix) != ncol(dp_matrix)) {
+    stop("AD and DP matrices have different dimensions")
+  }
+  
   # Check for non-transplant mode
   non_transplant_mode <- FALSE
   if(length(unique(meta$donor_type)) == 1 && unique(meta$donor_type)[1] == "donor0") {
     non_transplant_mode <- TRUE
     cat("\nNon-transplant mode detected (single donor type 'donor0')")
   }
-
-  # Apply donor type filter if specified and not in non-transplant mode
+  
+  # Apply donor_type filter if specified and not in non-transplant mode
   if(!is.null(donor_type) && !non_transplant_mode) {
-    # Add explicit NA handling
-    cells_to_use <- !is.na(meta$donor_type) & meta$donor_type == donor_type
-
-    if(sum(cells_to_use) == 0) {
-      stop(sprintf("No cells found for donor_type: %s", donor_type))
+    if(!"donor_type" %in% colnames(meta)) {
+      stop("donor_type column not found in metadata")
     }
-
-    # Print some diagnostic information
-    cat(sprintf("\nFiltering for donor type: %s", donor_type))
-    cat(sprintf("\nTotal cells before filter: %d", nrow(meta)))
-    cat(sprintf("\nCells passing filter: %d", sum(cells_to_use)))
-    cat(sprintf("\nNA values in donor_type: %d", sum(is.na(meta$donor_type))))
-
-    meta <- meta[cells_to_use, ]
-    ad_matrix <- ad_matrix[, cells_to_use]
-    dp_matrix <- dp_matrix[, cells_to_use]
-    if(use_normalized) dp_matrix_norm <- dp_matrix_norm[, cells_to_use]
+    
+    donor_cells <- !is.na(meta$donor_type) & meta$donor_type == donor_type
+    meta <- meta[donor_cells, ]
+    ad_matrix <- ad_matrix[, donor_cells]
+    dp_matrix <- dp_matrix[, donor_cells]
+    if(use_normalized) {
+      dp_matrix_norm <- dp_matrix_norm[, donor_cells]
+    }
+    
+    cat(sprintf("Filtered to %d %s cells", nrow(meta), donor_type))
   } else if(!is.null(donor_type) && non_transplant_mode) {
-    # In non-transplant mode but donor_type was specified
     cat(sprintf("\nIgnoring donor_type parameter in non-transplant mode (all cells are 'donor0')"))
   }
-
-  # Get unique groups and sort them
-  groups <- sort(unique(meta[[group_by]]))
-  n_groups <- length(groups)
-
-  # Initialize matrices
-  collapsed_ad <- Matrix::Matrix(0, nrow=nrow(ad_matrix), ncol=n_groups, sparse=TRUE)
-  collapsed_dp <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
-  if(use_normalized) {
-    collapsed_dp_norm <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
-  }
-  colnames(collapsed_ad) <- groups
-  colnames(collapsed_dp) <- groups
-  if(use_normalized) colnames(collapsed_dp_norm) <- groups
-
-  # Create metadata
-  collapsed_meta <- data.frame(
-    group = groups,
-    n_cells = sapply(groups, function(g) sum(meta[[group_by]] == g)),
-    mean_depth = sapply(groups, function(g) {
-      cells <- meta[[group_by]] == g
-      if(sum(cells) > 0) {
-        mean(Matrix::colSums(dp_matrix[, cells, drop=FALSE]))
-      } else {
-        0
-      }
-    }),
-    stringsAsFactors = FALSE
-  )
-
-  # Process each group
-  for(i in seq_along(groups)) {
-    group <- groups[i]
-    group_cells <- meta[[group_by]] == group
-
-    if(collapsed_meta$n_cells[i] >= min_cells_per_group) {
-      # Sum counts for all cells in group
-      collapsed_ad[, i] <- Matrix::rowSums(ad_matrix[, group_cells, drop=FALSE])
-      collapsed_dp[, i] <- Matrix::rowSums(dp_matrix[, group_cells, drop=FALSE])
-      if(use_normalized) {
-        collapsed_dp_norm[, i] <- Matrix::rowSums(dp_matrix_norm[, group_cells, drop=FALSE])
+  
+  # Check if we're in "group-only" mode (sample_column = NULL)
+  if(is.null(sample_column)) {
+    cat("\nOperating in group-only mode: comparing entire groups without sample stratification\n")
+    
+    # Get unique groups
+    groups <- sort(unique(meta[[group_by]]))
+    n_groups <- length(groups)
+    
+    cat(sprintf("Found %d unique groups", n_groups))
+    
+    # Initialize group-level matrices
+    collapsed_ad <- Matrix::Matrix(0, nrow=nrow(ad_matrix), ncol=n_groups, sparse=TRUE)
+    collapsed_dp <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
+    if(use_normalized) {
+      collapsed_dp_norm <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
+    }
+    
+    colnames(collapsed_ad) <- groups
+    colnames(collapsed_dp) <- groups
+    if(use_normalized) colnames(collapsed_dp_norm) <- groups
+    
+    # Create group-level metadata (pre-calculate for efficiency)
+    collapsed_meta <- data.frame(
+      group = groups,
+      n_cells = sapply(groups, function(g) sum(meta[[group_by]] == g)),
+      n_samples = NA,  # Not applicable in group-only mode
+      stringsAsFactors = FALSE
+    )
+    
+    # Add filter status
+    collapsed_meta$filter_status <- ifelse(
+      collapsed_meta$n_cells >= min_cells_per_group,
+      "included",
+      "filtered_low_cells"
+    )
+    
+    # Process each group directly
+    for(i in seq_along(groups)) {
+      group <- groups[i]
+      group_cells <- meta[[group_by]] == group
+      
+      if(collapsed_meta$n_cells[i] >= min_cells_per_group) {
+        # Sum counts for all cells in this group
+        collapsed_ad[, i] <- Matrix::rowSums(ad_matrix[, group_cells, drop=FALSE])
+        collapsed_dp[, i] <- Matrix::rowSums(dp_matrix[, group_cells, drop=FALSE])
+        if(use_normalized) {
+          collapsed_dp_norm[, i] <- Matrix::rowSums(dp_matrix_norm[, group_cells, drop=FALSE])
+        }
       }
     }
-  }
-
-  # Add filter status
-  collapsed_meta$filter_status <- ifelse(
-    collapsed_meta$n_cells >= min_cells_per_group,
-    "included",
-    "filtered_low_cells"
-  )
-
-  # Print summary
-  cat(sprintf("\nCollapsed data by %s:", group_by))
-  cat(sprintf("\n - Total cells: %d", ncol(ad_matrix)))
-  cat(sprintf("\n - Total groups: %d", n_groups))
-  cat(sprintf("\n - Included groups: %d", sum(collapsed_meta$filter_status == "included")))
-  cat(sprintf("\n - Filtered groups: %d", sum(collapsed_meta$filter_status == "filtered_low_cells")))
-  cat("\n - Using normalized counts:", use_normalized)
-  if(non_transplant_mode) {
-    cat("\n - Running in non-transplant mode (single donor)")
-  } else if(!is.null(donor_type)) {
-    cat(sprintf("\n - Filtered to donor type: %s", donor_type))
+    
+    # Create return object for group-only mode
+    result <- list(
+      ad = collapsed_ad,
+      dp = collapsed_dp,
+      metadata = collapsed_meta,
+      mode = "group_only",
+      parameters = list(
+        group_by = group_by,
+        sample_column = NULL,
+        donor_type = donor_type,
+        min_cells_per_group = min_cells_per_group,
+        use_normalized = use_normalized,
+        non_transplant_mode = non_transplant_mode
+      )
+    )
+    
+    if(use_normalized) {
+      result$dp_norm <- collapsed_dp_norm
+    }
+    
+    # Print summary
+    cat(sprintf("\nCollapsed data by %s:", group_by))
+    cat(sprintf("\n - Total cells: %d", ncol(ad_matrix)))
+    cat(sprintf("\n - Total groups: %d", n_groups))
+    cat(sprintf("\n - Included groups: %d", sum(collapsed_meta$filter_status == "included")))
+    cat(sprintf("\n - Filtered groups: %d", sum(collapsed_meta$filter_status == "filtered_low_cells")))
+    cat("\n - Using normalized counts:", use_normalized)
+    if(non_transplant_mode) {
+      cat("\n - Running in non-transplant mode (single donor)")
+    } else if(!is.null(donor_type)) {
+      cat(sprintf("\n - Filtered to donor type: %s", donor_type))
+    } else {
+      cat("\n - Using all donor types")
+    }
+    cat("\n\nGroup details:")
+    print(collapsed_meta)
+    
+    return(result)
+    
   } else {
-    cat("\n - Using all donor types")
+    # Original sample-stratified mode
+    cat("\nOperating in sample-stratified mode: comparing samples within groups\n")
+    
+    # Create group+sample combinations
+    meta$group_sample <- paste(meta[[group_by]], meta[[sample_column]], sep="_")
+    unique_group_samples <- sort(unique(meta$group_sample))
+    n_group_samples <- length(unique_group_samples)
+    
+    # Get unique groups for final aggregation
+    groups <- sort(unique(meta[[group_by]]))
+    n_groups <- length(groups)
+    
+    cat(sprintf("Found %d unique group-sample combinations across %d groups", 
+                n_group_samples, n_groups))
+    
+    # STEP 1: Aggregate by group+sample combinations
+    sample_level_ad <- Matrix::Matrix(0, nrow=nrow(ad_matrix), ncol=n_group_samples, sparse=TRUE)
+    sample_level_dp <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_group_samples, sparse=TRUE)
+    if(use_normalized) {
+      sample_level_dp_norm <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_group_samples, sparse=TRUE)
+    }
+    
+    colnames(sample_level_ad) <- unique_group_samples
+    colnames(sample_level_dp) <- unique_group_samples
+    if(use_normalized) colnames(sample_level_dp_norm) <- unique_group_samples
+    
+    # Pre-calculate sample metadata for efficiency
+    sample_meta <- data.frame(
+      group_sample = unique_group_samples,
+      group = sapply(unique_group_samples, function(gs) {
+        cells <- meta$group_sample == gs
+        if(sum(cells) > 0) {
+          meta[[group_by]][cells][1]
+        } else {
+          strsplit(gs, "_")[[1]][1]
+        }
+      }),
+      sample = sapply(unique_group_samples, function(gs) {
+        cells <- meta$group_sample == gs
+        if(sum(cells) > 0) {
+          meta[[sample_column]][cells][1]
+        } else {
+          paste(strsplit(gs, "_")[[1]][-1], collapse="_")
+        }
+      }),
+      n_cells = sapply(unique_group_samples, function(gs) {
+        sum(meta$group_sample == gs)
+      }),
+      stringsAsFactors = FALSE
+    )
+    
+    # Add filter status
+    sample_meta$filter_status <- ifelse(
+      sample_meta$n_cells >= min_cells_per_group,
+      "included",
+      "filtered_low_cells"
+    )
+    
+    # Process each group+sample combination
+    for(i in seq_along(unique_group_samples)) {
+      if(sample_meta$n_cells[i] >= min_cells_per_group) {
+        group_sample_cells <- meta$group_sample == unique_group_samples[i]
+        # Sum counts for all cells in this group+sample
+        sample_level_ad[, i] <- Matrix::rowSums(ad_matrix[, group_sample_cells, drop=FALSE])
+        sample_level_dp[, i] <- Matrix::rowSums(dp_matrix[, group_sample_cells, drop=FALSE])
+        if(use_normalized) {
+          sample_level_dp_norm[, i] <- Matrix::rowSums(dp_matrix_norm[, group_sample_cells, drop=FALSE])
+        }
+      }
+    }
+    
+    # STEP 2: Aggregate to group level (sum across samples within each group)
+    collapsed_ad <- Matrix::Matrix(0, nrow=nrow(ad_matrix), ncol=n_groups, sparse=TRUE)
+    collapsed_dp <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
+    if(use_normalized) {
+      collapsed_dp_norm <- Matrix::Matrix(0, nrow=nrow(dp_matrix), ncol=n_groups, sparse=TRUE)
+    }
+    
+    colnames(collapsed_ad) <- groups
+    colnames(collapsed_dp) <- groups
+    if(use_normalized) colnames(collapsed_dp_norm) <- groups
+    
+    # Pre-calculate group-level metadata for efficiency
+    collapsed_meta <- data.frame(
+      group = groups,
+      n_cells = sapply(groups, function(g) {
+        included_samples <- sample_meta$group == g & sample_meta$filter_status == "included"
+        sum(sample_meta$n_cells[included_samples])
+      }),
+      n_samples = sapply(groups, function(g) {
+        sum(sample_meta$group == g & sample_meta$filter_status == "included")
+      }),
+      filter_status = "included",
+      stringsAsFactors = FALSE
+    )
+    
+    # Process group-level aggregation
+    for(i in seq_along(groups)) {
+      group <- groups[i]
+      group_sample_indices <- which(sample_meta$group == group & sample_meta$filter_status == "included")
+      
+      if(length(group_sample_indices) > 0) {
+        collapsed_ad[, i] <- Matrix::rowSums(sample_level_ad[, group_sample_indices, drop=FALSE])
+        collapsed_dp[, i] <- Matrix::rowSums(sample_level_dp[, group_sample_indices, drop=FALSE])
+        if(use_normalized) {
+          collapsed_dp_norm[, i] <- Matrix::rowSums(sample_level_dp_norm[, group_sample_indices, drop=FALSE])
+        }
+      }
+    }
+    
+    # Create return object for sample-stratified mode
+    result <- list(
+      ad = collapsed_ad,
+      dp = collapsed_dp,
+      metadata = collapsed_meta,
+      sample_level_ad = sample_level_ad,
+      sample_level_dp = sample_level_dp,
+      sample_metadata = sample_meta,
+      mode = "sample_stratified",
+      parameters = list(
+        group_by = group_by,
+        sample_column = sample_column,
+        donor_type = donor_type,
+        min_cells_per_group = min_cells_per_group,
+        use_normalized = use_normalized,
+        non_transplant_mode = non_transplant_mode
+      )
+    )
+    
+    if(use_normalized) {
+      result$dp_norm <- collapsed_dp_norm
+      result$sample_level_dp_norm <- sample_level_dp_norm
+    }
+    
+    # Print summary
+    cat(sprintf("\nSample-stratified aggregation by %s:", group_by))
+    cat(sprintf("\n - Total cells: %d", ncol(ad_matrix)))
+    cat(sprintf("\n - Total groups: %d", n_groups))
+    cat(sprintf("\n - Total group-sample combinations: %d", n_group_samples))
+    cat(sprintf("\n - Included combinations: %d", sum(sample_meta$filter_status == "included")))
+    cat(sprintf("\n - Filtered combinations: %d", sum(sample_meta$filter_status == "filtered_low_cells")))
+    cat("\n - Using normalized counts:", use_normalized)
+    if(non_transplant_mode) {
+      cat("\n - Running in non-transplant mode (single donor)")
+    } else if(!is.null(donor_type)) {
+      cat(sprintf("\n - Filtered to donor type: %s", donor_type))
+    } else {
+      cat("\n - Using all donor types")
+    }
+    
+    cat("\n\nGroup-level summary:")
+    print(collapsed_meta)
+    
+    cat("\n\nSample-level details:")
+    print(sample_meta)
+    
+    return(result)
   }
-  cat("\n\nGroup details:")
-  print(collapsed_meta)
-
-  return(list(
-    ad_matrix = collapsed_ad,
-    dp_matrix = collapsed_dp,
-    dp_matrix_normalized = if(use_normalized) collapsed_dp_norm else NULL,
-    metadata = collapsed_meta,
-    group_by = group_by,
-    parameters = list(
-      min_cells_per_group = min_cells_per_group,
-      donor_type = donor_type,
-      normalized = use_normalized,
-      non_transplant_mode = non_transplant_mode
-    ),
-    snp_info = self$snp_database$snp_info,
-    snp_annotations = self$snp_database$snp_annotations
-  ))
 })
+
 
 
 
@@ -838,6 +1036,9 @@ variantCell$set("public", "findDESNPs", function(ident.1,
 #'                           other group for a SNP to be considered absent there.
 #' @param return_all Logical. Whether to return all results regardless of significance.
 #' @param include_rs_ids Logical. Whether to include rs# identifiers in results if available.
+#' @param presence_score_weights Numeric vector of length 3. Weights for calculating presence scores
+#'                              in sample-stratified mode: c(fold_change, sample_consistency, depth_reliability).
+#'                              Default: c(0.4, 0.3, 0.3). Weights should sum to 1.0.
 #' @return List containing:
 #'   \item{results}{Data frame of group-specific SNPs with metrics including genomic position,
 #'                  gene annotation, depth metrics, allele frequencies, and presence classification.}
@@ -892,22 +1093,87 @@ variantCell$set("public", "findDESNPs", function(ident.1,
 #'   max_alt_frac_other = 0.02
 #' )
 #'}
+#'
 #' @seealso
 #' \code{\link{aggregateByGroup}} for preparing input data
 #' \code{\link{findDESNPs}} for cell-level differential analysis
 #' \code{\link{plotSNPs}} for visualizing the identified SNPs
-#'
+
 variantCell$set("public", "findSNPsByGroup", function(ident.1,
                                                       ident.2 = NULL,
                                                       aggregated_data,
-                                                      min_depth = 10,          # Minimum depth in group with SNP
-                                                      min_alt_frac = 0.2,      # Minimum alt allele fraction
-                                                      max_alt_frac_other = 0.1, # Maximum alt fraction in other group
+                                                      min_depth = 10,
+                                                      min_alt_frac = 0.2,
+                                                      max_alt_frac_other = 0.1,
                                                       return_all = TRUE,
-                                                      include_rs_ids = TRUE) {  # NEW PARAMETER
+                                                      include_rs_ids = TRUE,
+                                                      presence_score_weights = c(0.4, 0.3, 0.3)) {
   
+  # Validate input data structure
+  if(!all(c("ad", "dp", "metadata", "mode") %in% names(aggregated_data))) {
+    stop("aggregated_data must contain 'ad', 'dp', 'metadata', and 'mode' elements from aggregateByGroup()")
+  }
+  
+  # Check if rs# IDs are available
+  has_rs_ids <- FALSE
+  if(include_rs_ids) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "rs_id" %in% colnames(self$snp_database$snp_info)) {
+      has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
+    }
+  }
+  
+  # Validate presence score weights
+  if(abs(sum(presence_score_weights) - 1.0) > 0.01) {
+    warning("Presence score weights do not sum to 1.0. Normalizing...")
+    presence_score_weights <- presence_score_weights / sum(presence_score_weights)
+  }
+  
+  # Detect aggregation mode and route to appropriate function
+  if(aggregated_data$mode == "group_only") {
+    cat("Detected group-only mode: analyzing entire group differences\n")
+    return(self$findSNPsByGroup_GroupOnly(
+      ident.1 = ident.1,
+      ident.2 = ident.2,
+      aggregated_data = aggregated_data,
+      min_depth = min_depth,
+      min_alt_frac = min_alt_frac,
+      max_alt_frac_other = max_alt_frac_other,
+      return_all = return_all,
+      include_rs_ids = include_rs_ids,
+      presence_score_weights = presence_score_weights
+    ))
+  } else if(aggregated_data$mode == "sample_stratified") {
+    cat("Detected sample-stratified mode: analyzing samples within groups\n")
+    return(self$findSNPsByGroup_SampleStratified(
+      ident.1 = ident.1,
+      ident.2 = ident.2,
+      aggregated_data = aggregated_data,
+      min_depth = min_depth,
+      min_alt_frac = min_alt_frac,
+      max_alt_frac_other = max_alt_frac_other,
+      return_all = return_all,
+      include_rs_ids = include_rs_ids,
+      presence_score_weights = presence_score_weights
+    ))
+  } else {
+    stop("Unknown aggregation mode. Please use aggregated data from the enhanced aggregateByGroup function.")
+  }
+})
+
+# Helper function for group-only mode (similar to 0.1.8 behavior)
+variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
+                                                                ident.2 = NULL,
+                                                                aggregated_data,
+                                                                min_depth = 10,
+                                                                min_alt_frac = 0.2,
+                                                                max_alt_frac_other = 0.1,
+                                                                return_all = TRUE,
+                                                                include_rs_ids = TRUE,
+                                                                presence_score_weights = c(0.4, 0.3, 0.3)) {
   # Input validation
-  if(!all(c("ad_matrix", "dp_matrix", "metadata") %in% names(aggregated_data))) {
+  if (!all(c("ad", "dp", "metadata") %in% names(aggregated_data))) {
     stop("Aggregated data missing required elements")
   }
   
@@ -926,118 +1192,506 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
     }
   }
   
-  # Get data
-  ad_matrix <- aggregated_data$ad_matrix
-  dp_matrix <- aggregated_data$dp_matrix
-  meta <- aggregated_data$metadata
+  
+  # Validate input parameters
+  if(!is.numeric(min_depth) || min_depth < 0) {
+    stop("min_depth must be a non-negative number")
+  }
+  if(!is.numeric(min_alt_frac) || min_alt_frac < 0 || min_alt_frac > 1) {
+    stop("min_alt_frac must be between 0 and 1")
+  }
+  if(!is.numeric(max_alt_frac_other) || max_alt_frac_other < 0 || max_alt_frac_other > 1) {
+    stop("max_alt_frac_other must be between 0 and 1")
+  }
+  
+  # Extract matrices and metadata
+  ad_matrix <- aggregated_data$ad
+  dp_matrix <- aggregated_data$dp
+  metadata <- aggregated_data$metadata
+  
+  # Validate extracted data
+  if(is.null(ad_matrix) || is.null(dp_matrix) || is.null(metadata)) {
+    stop("Invalid aggregated data structure")
+  }
+  if(ncol(ad_matrix) != ncol(dp_matrix)) {
+    stop("AD and DP matrices have different dimensions")
+  }
   
   # Check for non-transplant mode in the aggregated data
+  non_transplant_mode <- FALSE
+  if ("parameters" %in% names(aggregated_data) &&
+      "non_transplant_mode" %in% names(aggregated_data$parameters)) {
+    non_transplant_mode <- aggregated_data$parameters$non_transplant_mode
+  }
+  
+  
+  # Validate groups exist
+  if(!ident.1 %in% colnames(ad_matrix)) {
+    stop(sprintf("Group '%s' not found in aggregated data", ident.1))
+  }
+  
+  # Check if group has sufficient data
+  group1_total_depth <- sum(dp_matrix[, ident.1])
+  if(group1_total_depth == 0) {
+    warning(sprintf("Group '%s' has no sequencing depth", ident.1))
+  }
+  
+  # Handle ident.2
+  if(is.null(ident.2)) {
+    # Compare against all other groups combined
+    other_groups <- setdiff(colnames(ad_matrix), ident.1)
+    if(length(other_groups) == 0) {
+      stop("No other groups available for comparison")
+    }
+    
+    # Combine all other groups
+    group1_ad <- ad_matrix[, ident.1, drop=FALSE]
+    group1_dp <- dp_matrix[, ident.1, drop=FALSE]
+    
+    group2_ad <- Matrix::rowSums(ad_matrix[, other_groups, drop=FALSE])
+    group2_dp <- Matrix::rowSums(dp_matrix[, other_groups, drop=FALSE])
+    
+    comparison_label <- paste(ident.1, "vs", "All_Others")
+    
+  } else {
+    # Compare specific groups
+    if(!ident.2 %in% colnames(ad_matrix)) {
+      stop(sprintf("Group '%s' not found in aggregated data", ident.2))
+    }
+    
+    group1_ad <- ad_matrix[, ident.1, drop=FALSE]
+    group1_dp <- dp_matrix[, ident.1, drop=FALSE]
+    
+    group2_ad <- ad_matrix[, ident.2, drop=FALSE]
+    group2_dp <- dp_matrix[, ident.2, drop=FALSE]
+    
+    comparison_label <- paste(ident.1, "vs", ident.2)
+  }
+  
+  # Calculate alternative allele fractions
+  group1_alt_frac <- ifelse(group1_dp > 0, group1_ad / group1_dp, 0)
+  group2_alt_frac <- ifelse(group2_dp > 0, group2_ad / group2_dp, 0)
+  
+  # Apply filtering criteria
+  # SNPs present in group1 but absent in group2
+  group1_present <- group1_alt_frac >= min_alt_frac & group1_dp >= min_depth
+  group2_absent <- group2_alt_frac <= max_alt_frac_other & group2_dp >= min_depth
+  group1_specific <- group1_present & group2_absent
+  
+  # SNPs present in group2 but absent in group1  
+  group2_present <- group2_alt_frac >= min_alt_frac & group2_dp >= min_depth
+  group1_absent <- group1_alt_frac <= max_alt_frac_other & group1_dp >= min_depth
+  group2_specific <- group2_present & group1_absent
+  
+  # Combine results
+  significant_snps <- group1_specific | group2_specific
+  
+  if(!any(significant_snps) && !return_all) {
+    cat("No significant SNPs found with current thresholds\n")
+    return(list(
+      results = data.frame(),
+      summary = list(
+        comparison = comparison_label,
+        total_snps_tested = length(significant_snps),
+        snps_found = 0,
+        parameters = list(
+          min_depth = min_depth,
+          min_alt_frac = min_alt_frac,
+          max_alt_frac_other = max_alt_frac_other
+        )
+      )
+    ))
+  }
+  
+  # Get SNP annotations
+  if(is.null(self$snp_database$snp_info)) {
+    stop("SNP info not available in database")
+  }
+  if(is.null(self$snp_database$snp_annotations)) {
+    stop("SNP annotations not available in database")
+  }
+  
+  snp_info <- self$snp_database$snp_info
+  
+  # Create results data frame
+  if(return_all) {
+    snp_indices <- 1:nrow(ad_matrix)
+  } else {
+    snp_indices <- which(significant_snps)
+  }
+  
+  results_df <- data.frame(
+    snp_index = snp_indices,
+    chr = snp_info$CHROM[snp_indices],
+    pos = snp_info$POS[snp_indices],
+    ref = snp_info$REF[snp_indices],
+    alt = snp_info$ALT[snp_indices],
+    gene = self$snp_database$snp_annotations$gene_name[snp_indices],
+    feature = self$snp_database$snp_annotations$feature_type[snp_indices],
+    group1_ad = as.numeric(group1_ad[snp_indices]),
+    group1_dp = as.numeric(group1_dp[snp_indices]),
+    group1_alt_frac = as.numeric(group1_alt_frac[snp_indices]),
+    group2_ad = as.numeric(group2_ad[snp_indices]),
+    group2_dp = as.numeric(group2_dp[snp_indices]),
+    group2_alt_frac = as.numeric(group2_alt_frac[snp_indices]),
+    stringsAsFactors = FALSE
+  )
+  
+  # Add rs# IDs if available
+  if(include_rs_ids && has_rs_ids) {
+    results_df$rs_id <- self$snp_database$snp_info$rs_id[snp_indices]
+  }
+  
+  # Calculate presence classification and scores
+  results_df$group1_present <- results_df$group1_alt_frac >= min_alt_frac & results_df$group1_dp >= min_depth
+  results_df$group2_present <- results_df$group2_alt_frac >= min_alt_frac & results_df$group2_dp >= min_depth
+  
+  # Determine presence pattern
+  results_df$presence_pattern <- ifelse(
+    results_df$group1_present & !results_df$group2_present, paste0(ident.1, "_specific"),
+    ifelse(!results_df$group1_present & results_df$group2_present, 
+           ifelse(is.null(ident.2), "Other_specific", paste0(ident.2, "_specific")),
+           ifelse(results_df$group1_present & results_df$group2_present, "Both_present", "Neither_present")
+    )
+  )
+  
+  # Calculate presence score
+  alt_frac_diff <- abs(results_df$group1_alt_frac - results_df$group2_alt_frac)
+  min_depth_score <- pmin(results_df$group1_dp, results_df$group2_dp) / min_depth
+  max_depth_score <- pmax(results_df$group1_dp, results_df$group2_dp) / min_depth
+  
+  results_df$presence_score <- (
+    presence_score_weights[1] * alt_frac_diff +
+      presence_score_weights[2] * pmin(min_depth_score, 1) +
+      presence_score_weights[3] * pmin(max_depth_score / 10, 1)  # Scaled for very high depths
+  )
+  
+  # Sort by presence score
+  results_df <- results_df[order(results_df$presence_score, decreasing = TRUE), ]
+  
+  # Create summary
+  summary_info <- list(
+    comparison = comparison_label,
+    total_snps_tested = nrow(results_df),
+    snps_group1_specific = sum(results_df$presence_pattern == paste0(ident.1, "_specific"), na.rm = TRUE),
+    snps_group2_specific = sum(grepl("_specific$", results_df$presence_pattern) & 
+                                 results_df$presence_pattern != paste0(ident.1, "_specific"), na.rm = TRUE),
+    snps_both_present = sum(results_df$presence_pattern == "Both_present", na.rm = TRUE),
+    snps_neither_present = sum(results_df$presence_pattern == "Neither_present", na.rm = TRUE),
+    parameters = list(
+      min_depth = min_depth,
+      min_alt_frac = min_alt_frac,
+      max_alt_frac_other = max_alt_frac_other,
+      mode = "group_only"
+    )
+  )
+  
+  cat(sprintf("Found %d %s-specific and %d other-group-specific SNPs\n", 
+              summary_info$snps_group1_specific, 
+              ident.1, 
+              summary_info$snps_group2_specific))
+  
+  return(list(
+    results = results_df,
+    summary = summary_info
+  ))
+})
+
+# Helper function for sample-stratified mode 
+variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
+                                                                       ident.2 = NULL,
+                                                                       aggregated_data,
+                                                                       min_depth = 10,
+                                                                       min_alt_frac = 0.2,
+                                                                       max_alt_frac_other = 0.1,
+                                                                       return_all = TRUE,
+                                                                       include_rs_ids = TRUE,
+                                                                       presence_score_weights = c(fold_change = 0.5, 
+                                                                                                  sample_consistency = 0.3, 
+                                                                                                  depth_reliability = 0.2)) {
+  
+  # Input validation
+  if(!all(c("ad", "dp", "metadata") %in% names(aggregated_data))) {
+    stop("Aggregated data missing required elements")
+  }
+  
+  # Check if this is sample-aware aggregated data
+  is_sample_aware <- !is.null(aggregated_data$parameters$sample_column) &&
+    "sample_metadata" %in% names(aggregated_data)
+  
+  if(!is_sample_aware) {
+    stop("This function requires aggregated data for multiple samples. Use aggregateByGroup with sample_column parameter.")
+  }
+  
+  # Check if rs# IDs are available
+  has_rs_ids <- FALSE
+  if(include_rs_ids) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "rs_id" %in% colnames(self$snp_database$snp_info)) {
+      has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
+    }
+  }
+  
+  # Validate presence score weights
+  if(abs(sum(presence_score_weights) - 1.0) > 0.01) {
+    warning("Presence score weights do not sum to 1.0. Normalizing...")
+    presence_score_weights <- presence_score_weights / sum(presence_score_weights)
+  }
+  
+  # Get data
+  sample_meta <- aggregated_data$sample_metadata
+  sample_level_ad <- aggregated_data$sample_level_ad
+  sample_level_dp <- aggregated_data$sample_level_dp
+  
+  # Check for non-transplant mode
   non_transplant_mode <- FALSE
   if("parameters" %in% names(aggregated_data) &&
      "non_transplant_mode" %in% names(aggregated_data$parameters)) {
     non_transplant_mode <- aggregated_data$parameters$non_transplant_mode
   }
   
-  # Create group masks and get cells
-  group1_mask <- meta$group == ident.1 & meta$filter_status == "included"
+  # Get sample information for each group
   if(is.null(ident.2)) {
-    # For "rest", combine all other groups
-    group2_mask <- meta$filter_status == "included" & meta$group != ident.1
+    samples_group1 <- sample_meta$group_sample[sample_meta$group == ident.1 & sample_meta$filter_status == "included"]
+    samples_group2 <- sample_meta$group_sample[sample_meta$group != ident.1 & sample_meta$filter_status == "included"]
     group2_name <- "rest"
-    cells1 <- sum(meta$n_cells[group1_mask])
-    cells2 <- sum(meta$n_cells[group2_mask])
   } else {
-    group2_mask <- meta$group == ident.2 & meta$filter_status == "included"
+    samples_group1 <- sample_meta$group_sample[sample_meta$group == ident.1 & sample_meta$filter_status == "included"]
+    samples_group2 <- sample_meta$group_sample[sample_meta$group == ident.2 & sample_meta$filter_status == "included"]
     group2_name <- ident.2
-    cells1 <- meta$n_cells[group1_mask]
-    cells2 <- meta$n_cells[group2_mask]
   }
   
-  # Print initial summary
-  cat("\n=== Starting SNP Analysis ===")
+  n_samples_group1 <- length(samples_group1)
+  n_samples_group2 <- length(samples_group2)
+  
+  # Enhanced sample requirement calculation
+  calculate_min_samples <- function(n_samples, min_pct, min_abs) {
+    max(min_abs, ceiling(n_samples * min_pct))
+  }
+  
+  # Set default values for parameters not in function signature
+  min_pct_samples <- 0.6
+  min_abs_samples <- 2
+  calc_p_values <- TRUE
+  p_adjust_method <- "BH"
+  
+  min_samples_group1 <- calculate_min_samples(n_samples_group1, min_pct_samples, min_abs_samples)
+  min_samples_group2 <- calculate_min_samples(n_samples_group2, min_pct_samples, min_abs_samples)
+  
+  # Print enhanced summary
+  cat("\n=== Sample-Aware SNP Analysis ===")
   cat(sprintf("\nComparing SNP presence between groups:"))
-  cat(sprintf("\n%s: %d cells", ident.1, cells1))
-  cat(sprintf("\n%s: %d cells", group2_name, cells2))
-  if(non_transplant_mode) {
-    cat("\nRunning in non-transplant mode (single donor)")
-  } else if(!is.null(aggregated_data$parameters$donor_type)) {
-    cat(sprintf("\nFiltered to donor type: %s", aggregated_data$parameters$donor_type))
-  } else {
-    cat("\nUsing all donor types")
+  cat(sprintf("\n%s: %d samples, need %d samples (%.0f%% or min %d)", 
+              ident.1, n_samples_group1, min_samples_group1, min_pct_samples * 100, min_abs_samples))
+  cat(sprintf("\n%s: %d samples, need %d samples (%.0f%% or min %d)", 
+              group2_name, n_samples_group2, min_samples_group2, min_pct_samples * 100, min_abs_samples))
+  cat(sprintf("\nStatistical testing: %s", if(calc_p_values) "enabled" else "disabled"))
+  
+  # Get sample-level indices
+  sample_indices_group1 <- which(colnames(sample_level_ad) %in% samples_group1)
+  sample_indices_group2 <- which(colnames(sample_level_ad) %in% samples_group2)
+  
+  # Presence score calculation
+  calculate_presence_score <- function(alt_frac_diff, sample_weight, depth_factor, weights) {
+    # Normalize components to 0-1 scale with diminishing returns
+    norm_fold_change <- pmin(1, abs(alt_frac_diff) / 0.5)  # Cap at 50% difference
+    norm_sample_weight <- sample_weight  # Already 0-1
+    norm_depth <- pmin(1, depth_factor / 10)  # Cap depth contribution at 10x min_depth
+    
+    # Apply sigmoid transformation for diminishing returns
+    sigmoid <- function(x) 2 / (1 + exp(-2 * x)) - 1
+    
+    norm_fold_change <- sigmoid(norm_fold_change * 2)
+    norm_depth <- sigmoid(norm_depth * 2)
+    
+    # Weighted combination
+    score <- weights["fold_change"] * norm_fold_change + 
+      weights["sample_consistency"] * norm_sample_weight + 
+      weights["depth_reliability"] * norm_depth
+    
+    return(pmin(1, pmax(0, score)))  # Ensure 0-1 bounds
   }
   
-  if(has_rs_ids && include_rs_ids) {
-    cat("\nrs# identifiers will be included in results")
-  } else if(include_rs_ids) {
-    cat("\nrs# identifiers requested but not available")
+  # Statistical testing function
+  perform_presence_test <- function(present_g1, total_g1, present_g2, total_g2) {
+    if(total_g1 < 2 || total_g2 < 2) return(list(p_value = NA, effect_size = NA))
+    
+    # Fisher's exact test for presence pattern
+    contingency_table <- matrix(c(present_g1, total_g1 - present_g1,
+                                  present_g2, total_g2 - present_g2), 
+                                nrow = 2, byrow = TRUE)
+    
+    test_result <- tryCatch({
+      fisher.test(contingency_table)
+    }, error = function(e) {
+      list(p.value = NA)
+    })
+    
+    # Calculate effect size (log odds ratio)
+    effect_size <- tryCatch({
+      log((present_g1 / (total_g1 - present_g1 + 1)) / 
+            (present_g2 / (total_g2 - present_g2 + 1) + 1e-6))
+    }, error = function(e) NA)
+    
+    return(list(p_value = test_result$p.value, effect_size = effect_size))
   }
   
-  # Get aggregate counts for groups
-  ad1 <- rowSums(ad_matrix[, group1_mask, drop=FALSE])
-  dp1 <- rowSums(dp_matrix[, group1_mask, drop=FALSE])
-  ad2 <- rowSums(ad_matrix[, group2_mask, drop=FALSE])
-  dp2 <- rowSums(dp_matrix[, group2_mask, drop=FALSE])
-  
-  # Calculate allele fractions
-  alt_frac1 <- ad1/dp1
-  alt_frac2 <- ad2/dp2
+  # Quality assessment function with depth metrics
+  assess_quality <- function(sample_depths, sample_alt_fracs, n_samples, sample_mean_depths) {
+    depth_cv <- sd(sample_depths, na.rm = TRUE) / mean(sample_depths, na.rm = TRUE)
+    alt_frac_consistency <- 1 - sd(sample_alt_fracs, na.rm = TRUE)
+    sample_coverage <- n_samples / max(n_samples_group1, n_samples_group2)
+    
+    # Overall quality score (0-1, higher is better)
+    quality_score <- mean(c(
+      pmax(0, 1 - depth_cv),
+      pmax(0, alt_frac_consistency),
+      sample_coverage
+    ), na.rm = TRUE)
+    
+    return(list(
+      depth_cv = depth_cv,
+      alt_frac_consistency = alt_frac_consistency,
+      sample_coverage = sample_coverage,
+      overall_quality = quality_score
+    ))
+  }
   
   # Initialize results storage
-  results <- vector("list", nrow(ad_matrix))
+  results <- vector("list", nrow(sample_level_ad))
   results_count <- 0
   
-  # Find SNPs meeting criteria
-  for(i in seq_len(nrow(ad_matrix))) {
-    # Look for SNPs present in group1 but not group2
-    snp_in_group1 <- dp1[i] >= min_depth && alt_frac1[i] >= min_alt_frac && !is.na(alt_frac1[i])
-    snp_not_in_group2 <- dp2[i] >= min_depth && alt_frac2[i] <= max_alt_frac_other && !is.na(alt_frac2[i])
+  # Process each SNP
+  cat(sprintf("\nProcessing %d SNPs...", nrow(sample_level_ad)))
+  pb <- txtProgressBar(min = 0, max = nrow(sample_level_ad), style = 3)
+  
+  for(i in seq_len(nrow(sample_level_ad))) {
+    setTxtProgressBar(pb, i)
     
-    # Also look for SNPs present in group2 but not group1
-    snp_in_group2 <- dp2[i] >= min_depth && alt_frac2[i] >= min_alt_frac && !is.na(alt_frac2[i])
-    snp_not_in_group1 <- dp1[i] >= min_depth && alt_frac1[i] <= max_alt_frac_other && !is.na(alt_frac1[i])
+    # Get sample-level data for this SNP
+    ad1_samples <- sample_level_ad[i, sample_indices_group1]
+    dp1_samples <- sample_level_dp[i, sample_indices_group1]
+    ad2_samples <- sample_level_ad[i, sample_indices_group2]
+    dp2_samples <- sample_level_dp[i, sample_indices_group2]
     
-    if((snp_in_group1 && snp_not_in_group2) || (snp_in_group2 && snp_not_in_group1)) {
-      # Calculate presence score (0-1)
-      # Higher score means stronger evidence for group-specific presence
-      if(snp_in_group1 && snp_not_in_group2) {
-        presence_score <- (alt_frac1[i] - alt_frac2[i]) *
-          (dp1[i]/min_depth) *
-          (1 - alt_frac2[i]/min_alt_frac)
-        presence_score <- min(1, presence_score)
+    # Calculate alt fractions for each sample
+    alt_frac1_samples <- ifelse(dp1_samples > 0, ad1_samples / dp1_samples, 0)
+    alt_frac2_samples <- ifelse(dp2_samples > 0, ad2_samples / dp2_samples, 0)
+    
+    # Count samples meeting presence criteria in each group
+    samples_present_group1 <- sum(dp1_samples >= min_depth & alt_frac1_samples >= min_alt_frac, na.rm = TRUE)
+    samples_absent_group2 <- sum(dp2_samples >= min_depth & alt_frac2_samples <= max_alt_frac_other, na.rm = TRUE)
+    
+    samples_present_group2 <- sum(dp2_samples >= min_depth & alt_frac2_samples >= min_alt_frac, na.rm = TRUE)
+    samples_absent_group1 <- sum(dp1_samples >= min_depth & alt_frac1_samples <= max_alt_frac_other, na.rm = TRUE)
+    
+    # Check if sample-level criteria are met
+    snp_in_group1_samples <- samples_present_group1 >= min_samples_group1
+    snp_not_in_group2_samples <- samples_absent_group2 >= min_samples_group2
+    
+    snp_in_group2_samples <- samples_present_group2 >= min_samples_group2
+    snp_not_in_group1_samples <- samples_absent_group1 >= min_samples_group1
+    
+    # Only proceed if sample-level criteria are met
+    if((snp_in_group1_samples && snp_not_in_group2_samples) || 
+       (snp_in_group2_samples && snp_not_in_group1_samples)) {
+      
+      # Calculate group-level summary statistics
+      ad1_total <- sum(ad1_samples, na.rm = TRUE)
+      dp1_total <- sum(dp1_samples, na.rm = TRUE)
+      ad2_total <- sum(ad2_samples, na.rm = TRUE)
+      dp2_total <- sum(dp2_samples, na.rm = TRUE)
+      
+      alt_frac1_group <- ifelse(dp1_total > 0, ad1_total / dp1_total, 0)
+      alt_frac2_group <- ifelse(dp2_total > 0, ad2_total / dp2_total, 0)
+      
+      # Determine presence classification and calculate enhanced score
+      if(snp_in_group1_samples && snp_not_in_group2_samples) {
+        sample_weight1 <- samples_present_group1 / n_samples_group1
+        sample_weight2 <- samples_absent_group2 / n_samples_group2
+        sample_consistency <- (sample_weight1 + sample_weight2) / 2
+        alt_frac_diff <- alt_frac1_group - alt_frac2_group
+        depth_factor <- dp1_total / min_depth
+        presence_classification <- sprintf("Present in %s", ident.1)
+        
+        # Quality assessment for group 1
+        quality_metrics <- assess_quality(dp1_samples[dp1_samples > 0], 
+                                          alt_frac1_samples[dp1_samples > 0], 
+                                          n_samples_group1)
       } else {
-        presence_score <- (alt_frac2[i] - alt_frac1[i]) *
-          (dp2[i]/min_depth) *
-          (1 - alt_frac1[i]/min_alt_frac)
-        presence_score <- min(1, presence_score)
+        sample_weight1 <- samples_absent_group1 / n_samples_group1
+        sample_weight2 <- samples_present_group2 / n_samples_group2
+        sample_consistency <- (sample_weight1 + sample_weight2) / 2
+        alt_frac_diff <- alt_frac2_group - alt_frac1_group
+        depth_factor <- dp2_total / min_depth
+        presence_classification <- sprintf("Present in %s", group2_name)
+        
+        # Quality assessment for group 2
+        quality_metrics <- assess_quality(dp2_samples[dp2_samples > 0], 
+                                          alt_frac2_samples[dp2_samples > 0], 
+                                          n_samples_group2)
+      }
+      
+      # Calculate enhanced presence score
+      presence_score <- calculate_presence_score(
+        alt_frac_diff, sample_consistency, depth_factor, presence_score_weights
+      )
+      
+      # Statistical testing
+      if(calc_p_values) {
+        stat_result <- perform_presence_test(
+          samples_present_group1, n_samples_group1,
+          samples_present_group2, n_samples_group2
+        )
+      } else {
+        stat_result <- list(p_value = NA, effect_size = NA)
       }
       
       results_count <- results_count + 1
       
-      # Create base results data frame
+      # Create enhanced results data frame
       result_row <- data.frame(
         snp_idx = i,
-        chromosome = aggregated_data$snp_info$CHROM[i],
-        position = aggregated_data$snp_info$POS[i],
-        ref = aggregated_data$snp_info$REF[i],
-        alt = aggregated_data$snp_info$ALT[i],
-        feature_type = aggregated_data$snp_annotations$feature_type[i],
-        gene_name = aggregated_data$snp_annotations$gene_name[i],
-        gene_type = aggregated_data$snp_annotations$gene_type[i],
+        chromosome = self$snp_database$snp_info$CHROM[i],
+        position = self$snp_database$snp_info$POS[i],
+        ref = self$snp_database$snp_info$REF[i],
+        alt = self$snp_database$snp_info$ALT[i],
+        feature_type = self$snp_database$snp_annotations$feature_type[i],
+        gene_name = self$snp_database$snp_annotations$gene_name[i],
+        gene_type = self$snp_database$snp_annotations$gene_type[i],
         
-        # Coverage metrics
-        depth_1 = dp1[i],
-        depth_2 = dp2[i],
-        alt_count_1 = ad1[i],
-        alt_count_2 = ad2[i],
-        alt_frac_1 = alt_frac1[i],
-        alt_frac_2 = alt_frac2[i],
-        n_cells_1 = cells1,
-        n_cells_2 = cells2,
+        # Group-level metrics
+        depth_1 = dp1_total,
+        depth_2 = dp2_total,
+        alt_count_1 = ad1_total,
+        alt_count_2 = ad2_total,
+        alt_frac_1 = alt_frac1_group,
+        alt_frac_2 = alt_frac2_group,
+        alt_frac_diff = abs(alt_frac1_group - alt_frac2_group),
         
-        # Presence score and classification
+        # Sample-level metrics
+        n_samples_1 = n_samples_group1,
+        n_samples_2 = n_samples_group2,
+        samples_present_1 = samples_present_group1,
+        samples_present_2 = samples_present_group2,
+        samples_absent_1 = samples_absent_group1,
+        samples_absent_2 = samples_absent_group2,
+        pct_samples_present_1 = samples_present_group1 / n_samples_group1 * 100,
+        pct_samples_present_2 = samples_present_group2 / n_samples_group2 * 100,
+        sample_consistency = sample_consistency,
+        
+        # Enhanced scoring and statistics
         presence_score = presence_score,
-        presence = if(snp_in_group1 && snp_not_in_group2) sprintf("Present in %s", ident.1)
-        else sprintf("Present in %s", group2_name),
+        presence = presence_classification,
+        p_value = stat_result$p_value,
+        effect_size = stat_result$effect_size,
+        
+        # Quality metrics
+        depth_cv = quality_metrics$depth_cv,
+        alt_frac_consistency = quality_metrics$alt_frac_consistency,
+        sample_coverage = quality_metrics$sample_coverage,
+        overall_quality = quality_metrics$overall_quality,
         
         stringsAsFactors = FALSE
       )
@@ -1047,47 +1701,82 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
         result_row$rs_id <- self$snp_database$snp_info$rs_id[i]
       }
       
-      # Store results
       results[[results_count]] <- result_row
     }
   }
+  
+  close(pb)
   
   # Process final results
   if(results_count > 0) {
     all_results <- do.call(rbind, results[1:results_count])
     
-    # Sort results by presence score
-    all_results <- all_results[order(-all_results$presence_score), ]
+    # Apply multiple testing correction if p-values were calculated
+    if(calc_p_values && !all(is.na(all_results$p_value))) {
+      all_results$p_adjusted <- p.adjust(all_results$p_value, method = p_adjust_method)
+      all_results$significant <- !is.na(all_results$p_adjusted) & all_results$p_adjusted < 0.05
+    } else {
+      all_results$p_adjusted <- NA
+      all_results$significant <- NA
+    }
     
-    # Create summary
+    # Sort results by presence score (and p-value if available)
+    if(calc_p_values && !all(is.na(all_results$p_adjusted))) {
+      all_results <- all_results[order(all_results$p_adjusted, -all_results$presence_score), ]
+    } else {
+      all_results <- all_results[order(-all_results$presence_score), ]
+    }
+    
+    # Create enhanced summary
     summary <- list(
-      total_tested = nrow(ad_matrix),
+      total_tested = nrow(sample_level_ad),
       passed_filters = results_count,
       present_in_group1 = sum(all_results$presence == sprintf("Present in %s", ident.1)),
       present_in_group2 = sum(all_results$presence == sprintf("Present in %s", group2_name)),
+      significant_results = if(calc_p_values) sum(all_results$significant, na.rm = TRUE) else NA,
+      high_quality_results = sum(all_results$overall_quality >= 0.7, na.rm = TRUE),
       parameters = list(
         min_depth = min_depth,
         min_alt_frac = min_alt_frac,
         max_alt_frac_other = max_alt_frac_other,
+        min_pct_samples = min_pct_samples,
+        min_abs_samples = min_abs_samples,
+        min_samples_group1 = min_samples_group1,
+        min_samples_group2 = min_samples_group2,
+        calc_p_values = calc_p_values,
+        p_adjust_method = p_adjust_method,
+        presence_score_weights = presence_score_weights,
         non_transplant_mode = non_transplant_mode,
         include_rs_ids = include_rs_ids,
         rs_ids_available = has_rs_ids
       ),
+      quality_distribution = summary(all_results$overall_quality),
       patterns = table(all_results$presence)
     )
     
-    # Print summary
-    cat("\n\n=== Analysis Summary ===")
+    # Print enhanced summary
+    cat("\n\n=== Enhanced Analysis Summary ===")
     cat(sprintf("\nTotal SNPs tested: %d", summary$total_tested))
-    cat(sprintf("\nSNPs passing filters: %d", summary$passed_filters))
+    cat(sprintf("\nSNPs passing enhanced filters: %d", summary$passed_filters))
     cat(sprintf("\n - Present in %s: %d", ident.1, summary$present_in_group1))
     cat(sprintf("\n - Present in %s: %d", group2_name, summary$present_in_group2))
+    
+    if(calc_p_values) {
+      cat(sprintf("\n - Statistically significant: %d", summary$significant_results))
+    }
+    
+    cat(sprintf("\n - High quality (>0.7): %d", summary$high_quality_results))
+    cat(sprintf("\nSample criteria: %.0f%% (min %d) of samples must meet thresholds", 
+                min_pct_samples * 100, min_abs_samples))
     
     if(has_rs_ids && include_rs_ids) {
       rs_count <- sum(!is.na(all_results$rs_id))
       cat(sprintf("\n - SNPs with rs# identifiers: %d (%.1f%%)", 
                   rs_count, (rs_count/nrow(all_results))*100))
     }
+    
+    cat("\n\nQuality score distribution:")
+    print(summary$quality_distribution)
     
     cat("\n\nPresence distribution:")
     print(summary$patterns)
@@ -1098,6 +1787,6 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
     ))
   }
   
-  cat("\nNo SNPs meeting criteria found")
+  cat("\nNo SNPs meeting enhanced criteria found")
   return(NULL)
 })

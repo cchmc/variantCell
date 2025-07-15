@@ -2,10 +2,15 @@
 % Please edit documentation in R/04-DE-SNP.R
 \name{aggregateByGroup}
 \alias{aggregateByGroup}
-\title{aggregateByGroup: Aggregate SNP data by cell groups}
+\title{aggregateByGroup: Group-Level SNP Data Aggregation}
 \arguments{
 \item{group_by}{Character. Column name in metadata to use for grouping cells.
 Must be present in cell_metadata.}
+
+\item{sample_column}{Character. Column name in metadata to use for sample stratification.
+If NULL, operates in group-only mode. If specified, creates sample-aware
+aggregation that preserves sample-level information for statistical testing.
+Default: "sample_id".}
 
 \item{donor_type}{Character, optional. Specific donor type to analyze
 (e.g., "Donor" or "Recipient"). If NULL, uses all cells.
@@ -62,24 +67,29 @@ in the metadata but are still included in the output matrices
 }
 }
 \examples{
+
 \dontrun{
-# Basic usage - aggregate by cell type
+# Basic usage - aggregate by cell type (group-only mode)
 collapsed <- project$aggregateByGroup(
   group_by = "cell_type",
+  sample_column = NULL,
+  use_normalized = TRUE
+)
+
+# Sample-stratified aggregation for statistical testing
+stratified_agg <- project$aggregateByGroup(
+  group_by = "disease_status",
+  sample_column = "patient_id",
+  donor_type = "Recipient",
   use_normalized = TRUE
 )
 
 # Analyze only donor cells with stricter filtering
 donor_agg <- project$aggregateByGroup(
   group_by = "cell_type",
+  sample_column = "sample_id",
   donor_type = "Donor",
   min_cells_per_group = 5
-)
-
-# Aggregate by disease status
-disease_agg <- project$aggregateByGroup(
-  group_by = "disease_status",
-  use_normalized = TRUE
 )
 }
 }

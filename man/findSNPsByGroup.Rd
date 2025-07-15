@@ -22,6 +22,10 @@ other group for a SNP to be considered absent there.}
 \item{return_all}{Logical. Whether to return all results regardless of significance.}
 
 \item{include_rs_ids}{Logical. Whether to include rs# identifiers in results if available.}
+
+\item{presence_score_weights}{Numeric vector of length 3. Weights for calculating presence scores
+in sample-stratified mode: c(fold_change, sample_consistency, depth_reliability).
+Default: c(0.4, 0.3, 0.3). Weights should sum to 1.0.}
 }
 \value{
 List containing:
@@ -85,6 +89,7 @@ patient_snps <- proj$findSNPsByGroup(
   max_alt_frac_other = 0.02
 )
 }
+
 }
 \seealso{
 \code{\link{aggregateByGroup}} for preparing input data

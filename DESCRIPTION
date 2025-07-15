@@ -1,6 +1,6 @@
 Package: variantCell
 Title: Single-Cell SNP Analysis with Focus on Organ Transplant
-Version: 0.1.1
+Version: 0.1.2
 Authors@R: 
     person("Andrew", "Potter", , "andrew.potter@cchmc.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-8218-3813"))
