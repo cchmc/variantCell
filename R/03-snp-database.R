@@ -257,8 +257,7 @@ variantCell$set("public", "addSampleData", function(sample_id,
     snp_idx = 1:nrow(snp_data),
     total_depth = Matrix::rowSums(dp_matched),
     cells_passing = cells_passing,
-    mean_dp_per_cell = Matrix::rowMeans(dp_matched),
-    max_alt_frac = apply(alt_fractions, 1, max)
+    mean_dp_per_cell = Matrix::rowMeans(dp_matched)
   )
 
   # Apply filter based on number of cells meeting alt fraction threshold
