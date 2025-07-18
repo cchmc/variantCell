@@ -237,44 +237,114 @@ variantCell$set("public", "addSampleData", function(sample_id,
 
   # Perform normalization before filtering if requested
   # Perform normalization if requested
+  cat("Starting post-matrix processing...\n")
+  cat(sprintf("Matrix memory usage: AD=%.2f MB, DP=%.2f MB\n", 
+              as.numeric(object.size(ad_matched))/1024/1024,
+              as.numeric(object.size(dp_matched))/1024/1024))
+
+  # Step 1: Normalization
+  cat("Step 1: Starting normalization...\n")
   norm_result <- NULL
   if(normalize) {
+    cat("  Converting to sparse matrices...\n")
     norm_result <- self$normalizeSnpCounts(convertToSparse(ad_matched),
                                            convertToSparse(dp_matched),
                                            scale.factor = scale.factor)
+    cat("  Normalization completed.\n")
   }
-  # Calculate alt fractions and apply filtering
+
+  # Step 2: Calculate alt fractions
+  cat("Step 2: Calculating alt fractions...\n")
+  
+  # Check if we need downsampling for very large datasets
+  n_cells <- ncol(dp_matched)
+  max_cells_threshold <- 10000  # Downsample if more than 10K cells
+  
+  if(n_cells > max_cells_threshold) {
+    cat(sprintf("  Large dataset detected (%d cells). Downsampling to %d cells...\n", 
+                n_cells, max_cells_threshold))
+    
+    # Randomly sample cells to keep processing manageable
+    set.seed(42)  # For reproducibility
+    keep_cells <- sample(n_cells, max_cells_threshold)
+    keep_cells <- sort(keep_cells)  # Keep sorted for efficiency
+    
+    # Downsample matrices
+    ad_matched <- ad_matched[, keep_cells]
+    dp_matched <- dp_matched[, keep_cells]
+    
+    # Update matching cells and indices
+    matching_cells <- matching_cells[keep_cells]
+    matching_indices <- matching_indices[keep_cells]
+    
+    # Update normalization result if it exists
+    if(!is.null(norm_result)) {
+      norm_result$norm_counts <- norm_result$norm_counts[, keep_cells]
+      norm_result$size_factors <- norm_result$size_factors[keep_cells]
+    }
+    
+    cat(sprintf("  Downsampled to %d cells.\n", length(keep_cells)))
+  }
+  
+  # Now calculate alt fractions with manageable dataset
+  valid_mask <- dp_matched > 0
+  n_nonzero <- sum(valid_mask)
+  cat(sprintf("  Valid mask created. Non-zero entries: %d\n", n_nonzero))
+  
+  cat("  Calculating alt fractions...\n")
   alt_fractions <- Matrix::sparseMatrix(i = integer(0), j = integer(0),
                                         dims = dim(dp_matched))
-  valid_mask <- dp_matched > 0
   alt_fractions[valid_mask] <- ad_matched[valid_mask] / dp_matched[valid_mask]
+  cat("  Alt fractions calculated.\n")
 
-  # Count cells meeting alt fraction threshold per SNP
+  # Step 3: Count cells passing threshold
+  cat("Step 3: Counting cells passing threshold...\n")
   cells_passing <- Matrix::rowSums(alt_fractions >= min_alt_frac)
+  cat("  Cells passing count completed.\n")
 
-  # Calculate SNP metrics before filtering
+  # Step 4: Calculate SNP metrics
+  cat("Step 4: Calculating SNP metrics...\n")
+  cat("  Calculating total depth...\n")
+  total_depth <- Matrix::rowSums(dp_matched)
+  cat("  Calculating mean depth per cell...\n")
+  mean_dp_per_cell <- Matrix::rowMeans(dp_matched)
+  cat("  Creating SNP metrics dataframe...\n")
+
   snp_metrics <- data.frame(
     snp_idx = 1:nrow(snp_data),
-    total_depth = Matrix::rowSums(dp_matched),
+    total_depth = total_depth,
     cells_passing = cells_passing,
-    mean_dp_per_cell = Matrix::rowMeans(dp_matched)
+    mean_dp_per_cell = mean_dp_per_cell
   )
+  cat("  SNP metrics completed.\n")
 
-  # Apply filter based on number of cells meeting alt fraction threshold
+  # Step 5: Apply SNP filters
+  cat("Step 5: Applying SNP filters...\n")
   keep_snps <- which(cells_passing >= min_cells)
+  cat(sprintf("  Keeping %d out of %d SNPs\n", length(keep_snps), length(cells_passing)))
 
-  # Filter matrices and data
+  # Step 6: Filter matrices
+  cat("Step 6: Filtering matrices...\n")
   ad_filtered <- convertToSparse(ad_matched[keep_snps, , drop=FALSE])
+  cat("  AD matrix filtered.\n")
   dp_filtered <- convertToSparse(dp_matched[keep_snps, , drop=FALSE])
+  cat("  DP matrix filtered.\n")
   snp_data_filtered <- snp_data[keep_snps, ]
   snp_metrics_filtered <- snp_metrics[keep_snps, ]
 
   # Filter normalized counts if they exist
   if(!is.null(norm_result)) {
+    cat("  Filtering normalized counts...\n")
     norm_result$norm_counts <- convertToSparse(norm_result$norm_counts[keep_snps, , drop=FALSE])
+    cat("  Normalized counts filtered.\n")
   }
 
+  cat(sprintf("Memory after filtering: AD=%.2f MB, DP=%.2f MB\n", 
+              as.numeric(object.size(ad_filtered))/1024/1024,
+              as.numeric(object.size(dp_filtered))/1024/1024))
 
+  # Step 7: Create unified metadata
+  cat("Step 7: Creating unified metadata...\n")
   if(non_transplant_mode) {
     unified_metadata <- data.frame(
       cell_id = matching_cells,
@@ -292,10 +362,12 @@ variantCell$set("public", "addSampleData", function(sample_id,
       stringsAsFactors = FALSE
     )
   }
+  cat("  Unified metadata created.\n")
 
 
 
   # Add source-specific metadata
+  cat("  Adding source-specific metadata...\n")
   if(data_type == "seurat") {
     seurat_meta_cols <- setdiff(colnames(seurat_obj@meta.data), colnames(unified_metadata))
     unified_metadata[seurat_meta_cols] <- seurat_obj@meta.data[matching_cells, seurat_meta_cols]
@@ -306,8 +378,10 @@ variantCell$set("public", "addSampleData", function(sample_id,
     sce_meta_cols <- setdiff(colnames(colData(sce_obj)), colnames(unified_metadata))
     unified_metadata[sce_meta_cols] <- colData(sce_obj)[matching_cells, sce_meta_cols]
   }
+  cat("  Source-specific metadata added.\n")
 
-  # Store sample data
+  # Step 8: Store sample data
+  cat("Step 8: Storing sample data...\n")
   self$samples[[sample_id]] <- list(
     snp_data = snp_data_filtered,
     raw_metrics = list(
