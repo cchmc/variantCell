@@ -97,7 +97,8 @@
                                                          use_normalized = FALSE, # Whether to use normalized depth data
                                                          color_scheme = c("low" = "blue", "high" = "red"),
                                                          point_size_range = c(2, 8),
-                                                         include_rs_ids = TRUE) { 
+                                                         include_rs_ids = TRUE,
+                                                         include_population_AF = TRUE) { 
             
             require(ggplot2)
             require(cowplot)
@@ -121,6 +122,21 @@
               if(!has_rs_ids && include_rs_ids) {
                 cat("Warning: rs# identifiers requested but not available in project. ")
                 cat("Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.\n")
+              }
+            }
+            
+            # Check if population AF is available
+            has_population_AF <- FALSE
+            if(include_population_AF) {
+              if(!is.null(self$snp_database) && 
+                 "snp_info" %in% names(self$snp_database) &&
+                 "population_AF" %in% colnames(self$snp_database$snp_info)) {
+                has_population_AF <- !all(is.na(self$snp_database$snp_info$population_AF))
+              }
+              
+              if(!has_population_AF && include_population_AF) {
+                cat("Warning: Population AF requested but not available in project. ")
+                cat("Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.\n")
               }
             }
             
@@ -480,6 +496,20 @@
                             rs_count, total_snps, (rs_count/total_snps)*100))
               } else if(include_rs_ids) {
                 cat("\nrs# identifiers requested but not available. Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.")
+              }
+              
+              # Add population AF if available and requested
+              if(has_population_AF && include_population_AF) {
+                output_df$population_AF <- self$snp_database$snp_info$population_AF[plot_df$snp_idx]
+                
+                # Print information about population AF coverage
+                af_count <- sum(!is.na(output_df$population_AF))
+                total_snps <- nrow(output_df)
+                cat(sprintf("\nPopulation AF included in output"))
+                cat(sprintf("\n - SNPs with population AF: %d out of %d (%.1f%%)", 
+                            af_count, total_snps, (af_count/total_snps)*100))
+              } else if(include_population_AF) {
+                cat("\nPopulation AF requested but not available. Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.")
               }
               
               return(output_df)

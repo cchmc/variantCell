@@ -6,8 +6,10 @@
 \arguments{
 \item{add_rs_ids}{Logical. Whether to add rs# identifiers from a reference VCF file. Default: FALSE.}
 
-\item{VCF_file_path}{Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation.
-Required if add_rs_ids = TRUE.}
+\item{VCF_file_path}{Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation
+and/or population AF values. Required if add_rs_ids = TRUE or add_population_AF = TRUE.}
+
+\item{add_population_AF}{Logical. Whether to add population allele frequencies from a reference VCF file. Default: FALSE.}
 }
 \value{
 Invisibly returns self (the variantCell object) with the unified SNP database constructed
@@ -29,7 +31,7 @@ This function performs several key steps:
 \item If available, also creates a matrix of normalized counts
 \item Calculates database-wide metrics for each SNP
 \item Generates a QC report with summary statistics
-\item Optionally, adds rsIDs
+\item Optionally, adds rsIDs and/or population allele frequencies
 }
 
 The function handles the complexities of integrating data from multiple samples with
@@ -58,6 +60,10 @@ project$addSampleData(...)
 
 # Build the unified SNP database
 project$buildSNPDatabase()
+
+# Build with rs# IDs and population AF from 1000 Genomes VCF
+project$buildSNPDatabase(add_rs_ids = TRUE, add_population_AF = TRUE,
+                         VCF_file_path = "path/to/1000genomes.vcf")
 
 # Now the project is ready for analysis
 project$setProjectIdentity("cell_type")

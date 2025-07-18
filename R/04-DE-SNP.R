@@ -438,6 +438,7 @@ variantCell$set("public",  "getNumericSubset", function(sparseMat, rows, cols) {
 #' @param n_cores Integer, optional. Number of CPU cores to use for parallel processing.
 #'               If NULL, automatically uses detectCores() - 1.
 #' @param include_rs_ids Logical. If true, includes RS IDs               
+#' @param include_population_AF Logical. If true, includes population allele frequencies
 #'
 #' @return List containing:
 #'   \item{results}{Data frame of differentially expressed SNPs with metrics including log2FC,
@@ -511,7 +512,8 @@ variantCell$set("public", "findDESNPs", function(ident.1,
                                                  use_parallel = TRUE,       
                                                  chunk_size = 1000,         
                                                  max_ram_gb = 4,
-                                                 include_rs_ids = TRUE) {  
+                                                 include_rs_ids = TRUE,
+                                                 include_population_AF = TRUE) {  
   
   # Input validation
   if(is.null(self$current_project_ident)) {
@@ -534,6 +536,21 @@ variantCell$set("public", "findDESNPs", function(ident.1,
     if(!has_rs_ids && include_rs_ids) {
       cat("Warning: rs# identifiers requested but not available in project. ")
       cat("Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.\n")
+    }
+  }
+  
+  # Check if population AF is available
+  has_population_AF <- FALSE
+  if(include_population_AF) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "population_AF" %in% colnames(self$snp_database$snp_info)) {
+      has_population_AF <- !all(is.na(self$snp_database$snp_info$population_AF))
+    }
+    
+    if(!has_population_AF && include_population_AF) {
+      cat("Warning: Population AF requested but not available in project. ")
+      cat("Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.\n")
     }
   }
   
@@ -936,6 +953,11 @@ variantCell$set("public", "findDESNPs", function(ident.1,
       all_results$rs_id <- snp_info_subset$rs_id[subset_indices]
     }
     
+    # Add population AF if available and requested
+    if(has_population_AF && include_population_AF) {
+      all_results$population_AF <- snp_info_subset$population_AF[subset_indices]
+    }
+    
     # Adjust p-values only if they were calculated
     if(calc_p && !all(is.na(all_results$pvalue))) {
       all_results$padj <- p.adjust(all_results$pvalue, method = p.adjust.method)
@@ -1107,8 +1129,8 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
                                                       max_alt_frac_other = 0.1,
                                                       return_all = TRUE,
                                                       include_rs_ids = TRUE,
-                                                      presence_score_weights = c(0.4, 0.3, 0.3)) {
-  
+                                                      include_population_AF = TRUE,
+                                                      presence_score_weights = c(0.4, 0.3, 0.3)) {  
   # Validate input data structure
   if(!all(c("ad", "dp", "metadata", "mode") %in% names(aggregated_data))) {
     stop("aggregated_data must contain 'ad', 'dp', 'metadata', and 'mode' elements from aggregateByGroup()")
@@ -1123,6 +1145,17 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
       has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
     }
   }
+  
+  # Check if population AF is available
+  has_population_AF <- FALSE
+  if(include_population_AF) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "population_AF" %in% colnames(self$snp_database$snp_info)) {
+      has_population_AF <- !all(is.na(self$snp_database$snp_info$population_AF))
+    }
+  }
+  
   
   # Validate presence score weights
   if(abs(sum(presence_score_weights) - 1.0) > 0.01) {
@@ -1142,6 +1175,7 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
       max_alt_frac_other = max_alt_frac_other,
       return_all = return_all,
       include_rs_ids = include_rs_ids,
+      include_population_AF = include_population_AF,
       presence_score_weights = presence_score_weights
     ))
   } else if(aggregated_data$mode == "sample_stratified") {
@@ -1155,12 +1189,14 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
       max_alt_frac_other = max_alt_frac_other,
       return_all = return_all,
       include_rs_ids = include_rs_ids,
+      include_population_AF = include_population_AF,
       presence_score_weights = presence_score_weights
     ))
   } else {
     stop("Unknown aggregation mode. Please use aggregated data from the enhanced aggregateByGroup function.")
   }
 })
+
 
 # Helper function for group-only mode (similar to 0.1.8 behavior)
 variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
@@ -1171,6 +1207,7 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
                                                                 max_alt_frac_other = 0.1,
                                                                 return_all = TRUE,
                                                                 include_rs_ids = TRUE,
+                                                                include_population_AF = TRUE,
                                                                 presence_score_weights = c(0.4, 0.3, 0.3)) {
   # Input validation
   if (!all(c("ad", "dp", "metadata") %in% names(aggregated_data))) {
@@ -1191,6 +1228,22 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
       cat("Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.\n")
     }
   }
+  
+  # Check if population AF is available
+  has_population_AF <- FALSE
+  if(include_population_AF) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "population_AF" %in% colnames(self$snp_database$snp_info)) {
+      has_population_AF <- !all(is.na(self$snp_database$snp_info$population_AF))
+    }
+    
+    if(!has_population_AF && include_population_AF) {
+      cat("Warning: Population AF requested but not available in project. ")
+      cat("Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.\n")
+    }
+  }
+  
   
   
   # Validate input parameters
@@ -1342,6 +1395,51 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
     results_df$rs_id <- self$snp_database$snp_info$rs_id[snp_indices]
   }
   
+  # Add population AF to results if available
+  if(include_population_AF && has_population_AF) {
+    results_df$population_AF <- self$snp_database$snp_info$population_AF[snp_indices]
+  }
+  if(has_population_AF) {
+    population_af_subset <- self$snp_database$snp_info$population_AF[snp_indices]
+    
+    # Calculate fold enrichment for group1 vs population AF
+    # Use log2 fold change, handling zero/NA population AF values
+    results_df$group1_fold_enrichment <- ifelse(
+      !is.na(population_af_subset) & population_af_subset > 0,
+      log2((results_df$group1_alt_frac + 1e-6) / (population_af_subset + 1e-6)),
+      NA
+    )
+    
+    # Calculate fold enrichment for group2 vs population AF
+    results_df$group2_fold_enrichment <- ifelse(
+      !is.na(population_af_subset) & population_af_subset > 0,
+      log2((results_df$group2_alt_frac + 1e-6) / (population_af_subset + 1e-6)),
+      NA
+    )
+    
+    # Calculate normalized fold enrichment (bounded between -5 and 5)
+    results_df$group1_fold_enrichment_norm <- pmax(-5, pmin(5, results_df$group1_fold_enrichment))
+    results_df$group2_fold_enrichment_norm <- pmax(-5, pmin(5, results_df$group2_fold_enrichment))
+    
+    # Add enrichment interpretation
+    results_df$group1_enrichment_level <- ifelse(
+      is.na(results_df$group1_fold_enrichment), "No_PopAF",
+      ifelse(results_df$group1_fold_enrichment > 1, "High_Enriched",
+             ifelse(results_df$group1_fold_enrichment > 0.5, "Moderate_Enriched",
+                    ifelse(results_df$group1_fold_enrichment > -0.5, "Similar",
+                           ifelse(results_df$group1_fold_enrichment > -1, "Moderate_Depleted", "High_Depleted"))))
+    )
+    
+    results_df$group2_enrichment_level <- ifelse(
+      is.na(results_df$group2_fold_enrichment), "No_PopAF",
+      ifelse(results_df$group2_fold_enrichment > 1, "High_Enriched",
+             ifelse(results_df$group2_fold_enrichment > 0.5, "Moderate_Enriched",
+                    ifelse(results_df$group2_fold_enrichment > -0.5, "Similar",
+                           ifelse(results_df$group2_fold_enrichment > -1, "Moderate_Depleted", "High_Depleted"))))
+    )
+    
+  }  
+  
   # Calculate presence classification and scores
   results_df$group1_present <- results_df$group1_alt_frac >= min_alt_frac & results_df$group1_dp >= min_depth
   results_df$group2_present <- results_df$group2_alt_frac >= min_alt_frac & results_df$group2_dp >= min_depth
@@ -1386,10 +1484,34 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
     )
   )
   
+  # Add enrichment summary if population AF available
+  if(has_population_AF) {
+    summary_info$enrichment_summary <- list(
+      group1_highly_enriched = sum(results_df$group1_enrichment_level == "High_Enriched", na.rm = TRUE),
+      group1_moderately_enriched = sum(results_df$group1_enrichment_level == "Moderate_Enriched", na.rm = TRUE),
+      group1_similar = sum(results_df$group1_enrichment_level == "Similar", na.rm = TRUE),
+      group1_moderately_depleted = sum(results_df$group1_enrichment_level == "Moderate_Depleted", na.rm = TRUE),
+      group1_highly_depleted = sum(results_df$group1_enrichment_level == "High_Depleted", na.rm = TRUE),
+      snps_with_population_af = sum(!is.na(results_df$population_AF)),
+      snps_without_population_af = sum(is.na(results_df$population_AF))
+    )
+  }
+  
   cat(sprintf("Found %d %s-specific and %d other-group-specific SNPs\n", 
               summary_info$snps_group1_specific, 
               ident.1, 
               summary_info$snps_group2_specific))
+  
+  if(has_population_AF) {
+    cat(sprintf("Population AF enrichment summary for %s:\n", ident.1))
+    cat(sprintf("  High enrichment (>2x): %d SNPs\n", summary_info$enrichment_summary$group1_highly_enriched))
+    cat(sprintf("  Moderate enrichment (1.4-2x): %d SNPs\n", summary_info$enrichment_summary$group1_moderately_enriched))
+    cat(sprintf("  Similar to population: %d SNPs\n", summary_info$enrichment_summary$group1_similar))
+    cat(sprintf("  Moderate depletion (0.5-0.7x): %d SNPs\n", summary_info$enrichment_summary$group1_moderately_depleted))
+    cat(sprintf("  High depletion (<0.5x): %d SNPs\n", summary_info$enrichment_summary$group1_highly_depleted))
+  }
+  
+  
   
   return(list(
     results = results_df,
@@ -1406,6 +1528,7 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
                                                                        max_alt_frac_other = 0.1,
                                                                        return_all = TRUE,
                                                                        include_rs_ids = TRUE,
+                                                                       include_population_AF = TRUE,
                                                                        presence_score_weights = c(fold_change = 0.5, 
                                                                                                   sample_consistency = 0.3, 
                                                                                                   depth_reliability = 0.2)) {
@@ -1432,6 +1555,17 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
       has_rs_ids <- !all(is.na(self$snp_database$snp_info$rs_id))
     }
   }
+  
+  # Check if population AF is available
+  has_population_AF <- FALSE
+  if(include_population_AF) {
+    if(!is.null(self$snp_database) && 
+       "snp_info" %in% names(self$snp_database) &&
+       "population_AF" %in% colnames(self$snp_database$snp_info)) {
+      has_population_AF <- !all(is.na(self$snp_database$snp_info$population_AF))
+    }
+  }
+  
   
   # Validate presence score weights
   if(abs(sum(presence_score_weights) - 1.0) > 0.01) {
@@ -1701,6 +1835,47 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
         result_row$rs_id <- self$snp_database$snp_info$rs_id[i]
       }
       
+      if(include_population_AF && has_population_AF) {
+        result_row$population_AF <- self$snp_database$snp_info$population_AF[i]
+      }
+      if(has_population_AF) {
+        population_af_i <- self$snp_database$snp_info$population_AF[i]
+        
+        # Calculate fold enrichment for both groups vs population AF
+        result_row$group1_fold_enrichment <- ifelse(
+          !is.na(population_af_i) & population_af_i > 0,
+          log2((result_row$alt_frac_1 + 1e-6) / (population_af_i + 1e-6)),
+          NA
+        )
+        
+        result_row$group2_fold_enrichment <- ifelse(
+          !is.na(population_af_i) & population_af_i > 0,
+          log2((result_row$alt_frac_2 + 1e-6) / (population_af_i + 1e-6)),
+          NA
+        )
+        
+        # Calculate normalized fold enrichment (bounded between -5 and 5)
+        result_row$group1_fold_enrichment_norm <- pmax(-5, pmin(5, result_row$group1_fold_enrichment))
+        result_row$group2_fold_enrichment_norm <- pmax(-5, pmin(5, result_row$group2_fold_enrichment))
+        
+        # Add enrichment interpretation
+        result_row$group1_enrichment_level <- ifelse(
+          is.na(result_row$group1_fold_enrichment), "No_PopAF",
+          ifelse(result_row$group1_fold_enrichment > 1, "High_Enriched",
+                 ifelse(result_row$group1_fold_enrichment > 0.5, "Moderate_Enriched",
+                        ifelse(result_row$group1_fold_enrichment > -0.5, "Similar",
+                               ifelse(result_row$group1_fold_enrichment > -1, "Moderate_Depleted", "High_Depleted"))))
+        )
+        
+        result_row$group2_enrichment_level <- ifelse(
+          is.na(result_row$group2_fold_enrichment), "No_PopAF",
+          ifelse(result_row$group2_fold_enrichment > 1, "High_Enriched",
+                 ifelse(result_row$group2_fold_enrichment > 0.5, "Moderate_Enriched",
+                        ifelse(result_row$group2_fold_enrichment > -0.5, "Similar",
+                               ifelse(result_row$group2_fold_enrichment > -1, "Moderate_Depleted", "High_Depleted"))))
+        )
+      }
+      
       results[[results_count]] <- result_row
     }
   }
@@ -1748,7 +1923,9 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
         presence_score_weights = presence_score_weights,
         non_transplant_mode = non_transplant_mode,
         include_rs_ids = include_rs_ids,
-        rs_ids_available = has_rs_ids
+        rs_ids_available = has_rs_ids,
+        include_population_AF = include_population_AF, 
+        population_AF_available = has_population_AF 
       ),
       quality_distribution = summary(all_results$overall_quality),
       patterns = table(all_results$presence)
@@ -1774,6 +1951,12 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
       cat(sprintf("\n - SNPs with rs# identifiers: %d (%.1f%%)", 
                   rs_count, (rs_count/nrow(all_results))*100))
     }
+    if(has_population_AF && include_population_AF) {
+      AF_count <- sum(!is.na(all_results$population_AF))
+      cat(sprintf("\n - SNPs with population AF: %d (%.1f%%)", 
+                  AF_count, (AF_count/nrow(all_results))*100))
+    }
+    
     
     cat("\n\nQuality score distribution:")
     print(summary$quality_distribution)

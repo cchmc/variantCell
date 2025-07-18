@@ -399,8 +399,9 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #'
 #'
 #' @param add_rs_ids Logical. Whether to add rs# identifiers from a reference VCF file. Default: FALSE.
-#' @param VCF_file_path Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation.
-#'   Required if add_rs_ids = TRUE.
+#' @param VCF_file_path Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation
+#'   and/or population AF values. Required if add_rs_ids = TRUE or add_population_AF = TRUE.
+#' @param add_population_AF Logical. Whether to add population allele frequencies from a reference VCF file. Default: FALSE.
 #'
 #' @return Invisibly returns self (the variantCell object) with the unified SNP database constructed
 #'   and stored in the snp_database field.
@@ -414,7 +415,7 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #' 5. If available, also creates a matrix of normalized counts
 #' 6. Calculates database-wide metrics for each SNP
 #' 7. Generates a QC report with summary statistics
-#' 8. Optionally, adds rsIDs
+#' 8. Optionally, adds rsIDs and/or population allele frequencies
 #'
 #' The function handles the complexities of integrating data from multiple samples with
 #' potentially different sets of SNPs and metadata columns. It manages matrix indexing,
@@ -441,12 +442,16 @@ variantCell$set("public",  "normalizeSnpCounts", function(ad_matrix, dp_matrix, 
 #' # Build the unified SNP database
 #' project$buildSNPDatabase()
 #'
+#' # Build with rs# IDs and population AF from 1000 Genomes VCF
+#' project$buildSNPDatabase(add_rs_ids = TRUE, add_population_AF = TRUE,
+#'                          VCF_file_path = "path/to/1000genomes.vcf")
+#'
 #' # Now the project is ready for analysis
 #' project$setProjectIdentity("cell_type")
 #' results <- project$findDESNPs(...)
 #' }
 
-variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_file_path = NULL) {
+variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_file_path = NULL, add_population_AF = FALSE) {
   cat("Building unified SNP database...\n")
   
   # Input validation
@@ -454,14 +459,19 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
     stop("No samples added to database")
   }
   
-  if(add_rs_ids) {
+  if(add_rs_ids || add_population_AF) {
     if(is.null(VCF_file_path)) {
-      stop("VCF_file_path must be provided when add_rs_ids = TRUE")
+      stop("VCF_file_path must be provided when add_rs_ids = TRUE or add_population_AF = TRUE")
     }
     if(!file.exists(VCF_file_path)) {
       stop(sprintf("VCF file not found: %s", VCF_file_path))
     }
-    cat(sprintf("rs# annotation will be added from: %s\n", VCF_file_path))
+    if(add_rs_ids) {
+      cat(sprintf("rs# annotation will be added from: %s\n", VCF_file_path))
+    }
+    if(add_population_AF) {
+      cat(sprintf("Population allele frequencies will be added from: %s\n", VCF_file_path))
+    }
   }
   
   # First pass: collect SNP info and cell counts
@@ -614,40 +624,71 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
     stringsAsFactors = FALSE
   )
   
-  if(add_rs_ids) {
+  if(add_rs_ids || add_population_AF) {
     cat("\n==================================================")
-    cat("\nAdding rs# identifiers from reference VCF...")
+    cat("\nAdding annotations from reference VCF...")
     cat("\n==================================================")                       
     tryCatch({
-      # Call the rs# matching function
-      rs_ids <- private$match_rs_ids_internal(unique_snps, VCF_file_path)
+      # Call the matching function to get both rs_ids and population AF
+      vcf_annotations <- private$match_vcf_annotations_internal(unique_snps, VCF_file_path, add_rs_ids, add_population_AF)
       
-      # Add rs# to snp_info, annotations, and metrics for consistency
-      unique_snps$rs_id <- rs_ids          # ADD THIS LINE
-      snp_annotations$rs_id <- rs_ids
-      db_metrics$rs_id <- rs_ids
+      # Add annotations to snp_info, annotations, and metrics for consistency
+      if(add_rs_ids) {
+        unique_snps$rs_id <- vcf_annotations$rs_id
+        snp_annotations$rs_id <- vcf_annotations$rs_id
+        db_metrics$rs_id <- vcf_annotations$rs_id
+        
+        # Report rs# matching results
+        matched_rs <- sum(!is.na(vcf_annotations$rs_id))
+        total_snps <- length(vcf_annotations$rs_id)
+        cat(sprintf("\nrs# annotation results:"))
+        cat(sprintf("\n - Total SNPs: %d", total_snps))
+        cat(sprintf("\n - SNPs with rs# IDs: %d (%.1f%%)", matched_rs, (matched_rs/total_snps)*100))
+        cat(sprintf("\n - SNPs without rs# IDs: %d (%.1f%%)", total_snps - matched_rs, ((total_snps - matched_rs)/total_snps)*100))
+      }
       
-      # Report rs# matching results
-      matched_rs <- sum(!is.na(rs_ids))
-      total_snps <- length(rs_ids)
-      cat(sprintf("\nrs# annotation results:"))
-      cat(sprintf("\n - Total SNPs: %d", total_snps))
-      cat(sprintf("\n - SNPs with rs# IDs: %d (%.1f%%)", matched_rs, (matched_rs/total_snps)*100))
-      cat(sprintf("\n - SNPs without rs# IDs: %d (%.1f%%)", total_snps - matched_rs, ((total_snps - matched_rs)/total_snps)*100))
+      if(add_population_AF) {
+        unique_snps$population_AF <- vcf_annotations$population_AF
+        snp_annotations$population_AF <- vcf_annotations$population_AF
+        db_metrics$population_AF <- vcf_annotations$population_AF
+        
+        # Report population AF results
+        matched_af <- sum(!is.na(vcf_annotations$population_AF))
+        total_snps <- length(vcf_annotations$population_AF)
+        cat(sprintf("\nPopulation AF annotation results:"))
+        cat(sprintf("\n - Total SNPs: %d", total_snps))
+        cat(sprintf("\n - SNPs with population AF: %d (%.1f%%)", matched_af, (matched_af/total_snps)*100))
+        cat(sprintf("\n - SNPs without population AF: %d (%.1f%%)", total_snps - matched_af, ((total_snps - matched_af)/total_snps)*100))
+        if(matched_af > 0) {
+          cat(sprintf("\n - Population AF range: %.6f - %.6f", 
+                      min(vcf_annotations$population_AF, na.rm=TRUE), 
+                      max(vcf_annotations$population_AF, na.rm=TRUE)))
+        }
+      }
       
     }, error = function(e) {
-      warning(sprintf("Failed to add rs# identifiers: %s", e$message))
-      cat("\nContinuing without rs# annotation...")
-      # Add empty rs_id columns
-      unique_snps$rs_id <- NA_character_    # ADD THIS LINE
-      snp_annotations$rs_id <- NA_character_
-      db_metrics$rs_id <- NA_character_
+      warning(sprintf("Failed to add VCF annotations: %s", e$message))
+      cat("\nContinuing without VCF annotation...")
+      # Add empty columns
+      if(add_rs_ids) {
+        unique_snps$rs_id <- NA_character_
+        snp_annotations$rs_id <- NA_character_
+        db_metrics$rs_id <- NA_character_
+      }
+      if(add_population_AF) {
+        unique_snps$population_AF <- NA_real_
+        snp_annotations$population_AF <- NA_real_
+        db_metrics$population_AF <- NA_real_
+      }
     })
   } else {
-    # Add empty rs_id columns for consistency
-    unique_snps$rs_id <- NA_character_      # ADD THIS LINE
+    # Add empty columns for consistency
+    unique_snps$rs_id <- NA_character_
     snp_annotations$rs_id <- NA_character_
     db_metrics$rs_id <- NA_character_
+    unique_snps$population_AF <- NA_real_
+    snp_annotations$population_AF <- NA_real_
+    db_metrics$population_AF <- NA_real_
   }
   
   # Store results
@@ -666,6 +707,8 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
       has_normalized_data = has_normalized,
       has_rs_ids = add_rs_ids,
       rs_annotation_success = if(add_rs_ids) sum(!is.na(db_metrics$rs_id)) else 0,
+      has_population_AF = add_population_AF,
+      population_AF_success = if(add_population_AF) sum(!is.na(db_metrics$population_AF)) else 0,
       cells_per_sample = sapply(self$samples, function(x) ncol(x$raw_metrics$ad_matrix)),
       feature_distribution = table(snp_annotations$feature_type),
       biotype_distribution = table(snp_annotations$gene_type)
@@ -683,14 +726,19 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
                 self$snp_database$qc_report$rs_annotation_success,
                 (self$snp_database$qc_report$rs_annotation_success/nrow(unique_snps))*100))
   }
+  if(add_population_AF) {
+    cat(sprintf("\nPopulation AF: %d (%.1f%% coverage)", 
+                self$snp_database$qc_report$population_AF_success,
+                (self$snp_database$qc_report$population_AF_success/nrow(unique_snps))*100))
+  }
   cat("\nFeature distribution:")
   print(table(snp_annotations$feature_type))
   
   invisible(self)
 })
 
-# Add the internal rs# matching helper function
-variantCell$set("private", "match_rs_ids_internal", function(unique_snps, VCF_file_path) {
+# Add the internal VCF annotation matching helper function
+variantCell$set("private", "match_vcf_annotations_internal", function(unique_snps, VCF_file_path, add_rs_ids = FALSE, add_population_AF = FALSE) {
   
   require(data.table)
   
@@ -741,14 +789,52 @@ variantCell$set("private", "match_rs_ids_internal", function(unique_snps, VCF_fi
   
   if(nrow(matching_vcf) == 0) {
     cat("No matching positions found!\n")
-    return(rep(NA_character_, nrow(unique_snps)))
+    result <- list()
+    if(add_rs_ids) result$rs_id <- rep(NA_character_, nrow(unique_snps))
+    if(add_population_AF) result$population_AF <- rep(NA_real_, nrow(unique_snps))
+    return(result)
   }
   
   # Handle multi-allelic sites
   cat("Processing multi-allelic sites...\n")
-  expanded_vcf <- matching_vcf[rep(1:nrow(matching_vcf), sapply(strsplit(matching_vcf$ALT, ","), length))]
-  alt_split <- unlist(strsplit(matching_vcf$ALT, ","))
-  expanded_vcf$ALT <- alt_split
+  
+  # For multi-allelic sites, we need to handle AF values properly
+  # AF field can contain comma-separated values for multiple alleles
+  expanded_records <- list()
+  
+  for(i in 1:nrow(matching_vcf)) {
+    record <- matching_vcf[i, ]
+    alt_alleles <- strsplit(record$ALT, ",")[[1]]
+    
+    # Extract AF values from INFO field if needed
+    af_values <- NA_real_
+    if(add_population_AF) {
+      info_field <- record$INFO
+      af_match <- regexpr("AF=([0-9.,e-]+)", info_field, perl = TRUE)
+      if(af_match > 0) {
+        af_str <- regmatches(info_field, af_match)
+        af_str <- sub("AF=", "", af_str)
+        af_values <- as.numeric(strsplit(af_str, ",")[[1]])
+      }
+    }
+    
+    # Create one record per alternate allele
+    for(j in 1:length(alt_alleles)) {
+      expanded_record <- record
+      expanded_record$ALT <- alt_alleles[j]
+      
+      # Assign the appropriate AF value for this allele
+      if(add_population_AF && !is.na(af_values[1])) {
+        expanded_record$population_AF <- if(j <= length(af_values)) af_values[j] else NA_real_
+      } else {
+        expanded_record$population_AF <- NA_real_
+      }
+      
+      expanded_records[[length(expanded_records) + 1]] <- expanded_record
+    }
+  }
+  
+  expanded_vcf <- rbindlist(expanded_records, fill = TRUE)
   
   # Create match keys for final matching
   expanded_vcf$match_key <- paste(expanded_vcf$CHROM, expanded_vcf$POS, 
@@ -766,13 +852,21 @@ variantCell$set("private", "match_rs_ids_internal", function(unique_snps, VCF_fi
   
   matched_data <- vcf_dt[project_dt, on = "match_key"]
   
-  # Clean rs# identifiers
-  matched_data$rs_id <- ifelse(matched_data$ID == "." | is.na(matched_data$ID), NA, matched_data$ID)
+  # Prepare results
+  result <- list()
   
-  # Return rs_ids in the same order as unique_snps
-  rs_ids <- matched_data$rs_id[match(unique_snps$match_key, matched_data$match_key)]
+  if(add_rs_ids) {
+    # Clean rs# identifiers
+    matched_data$rs_id <- ifelse(matched_data$ID == "." | is.na(matched_data$ID), NA, matched_data$ID)
+    result$rs_id <- matched_data$rs_id[match(unique_snps$match_key, matched_data$match_key)]
+  }
   
-  return(rs_ids)
+  if(add_population_AF) {
+    # Population AF is already extracted above
+    result$population_AF <- matched_data$population_AF[match(unique_snps$match_key, matched_data$match_key)]
+  }
+  
+  return(result)
 })
 variantCell$set("public", "annotate_snps", function(snp_info,
                                                     chunk_size = 5000,

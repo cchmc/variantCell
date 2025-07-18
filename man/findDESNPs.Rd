@@ -36,6 +36,8 @@ If NULL, uses all cells regardless of donor type.}
 If NULL, automatically uses detectCores() - 1.}
 
 \item{include_rs_ids}{Logical. If true, includes RS IDs}
+
+\item{include_population_AF}{Logical. If true, includes population allele frequencies}
 }
 \value{
 List containing:
