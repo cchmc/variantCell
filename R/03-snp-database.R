@@ -258,7 +258,7 @@ variantCell$set("public", "addSampleData", function(sample_id,
   
   # Check if we need downsampling for very large datasets
   n_cells <- ncol(dp_matched)
-  max_cells_threshold <- 10000  # Downsample if more than 10K cells
+  max_cells_threshold <- 5000  # Downsample if more than 5K cells
   
   if(n_cells > max_cells_threshold) {
     cat(sprintf("  Large dataset detected (%d cells). Downsampling to %d cells...\n", 
