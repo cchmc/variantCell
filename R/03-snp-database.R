@@ -92,7 +92,8 @@ variantCell$set("public", "addSampleData", function(sample_id,
                                                     min_alt_frac = 0,
                                                     normalize = TRUE,
                                                     scale.factor = 10000,
-                                                    sample_metadata = NULL) {
+                                                    sample_metadata = NULL,
+                                                    max_nonzero_entries = 12000000) {
 
   # Input validation
   if(non_transplant_mode) {
@@ -256,17 +257,29 @@ variantCell$set("public", "addSampleData", function(sample_id,
   # Step 2: Calculate alt fractions
   cat("Step 2: Calculating alt fractions...\n")
   
-  # Check if we need downsampling for very large datasets
+  # Check if we need downsampling based on matrix density
+  valid_mask <- dp_matched > 0
+  n_nonzero <- sum(valid_mask)
   n_cells <- ncol(dp_matched)
-  max_cells_threshold <- 5000  # Downsample if more than 5K cells
+  n_snps <- nrow(dp_matched)
   
-  if(n_cells > max_cells_threshold) {
-    cat(sprintf("  Large dataset detected (%d cells). Downsampling to %d cells...\n", 
-                n_cells, max_cells_threshold))
+  cat(sprintf("  Valid mask created. Non-zero entries: %d\n", n_nonzero))
+  cat(sprintf("  Matrix dimensions: %d SNPs x %d cells\n", n_snps, n_cells))
+  
+  if(n_nonzero > max_nonzero_entries) {
+    cat(sprintf("  Large matrix detected (%d non-zero entries > %d threshold).\n", 
+                n_nonzero, max_nonzero_entries))
+    
+    # Calculate target downsampling to reach the threshold
+    # We'll preferentially downsample cells over SNPs to preserve SNP coverage
+    target_cells <- min(n_cells, round(max_nonzero_entries * n_cells / n_nonzero))
+    target_cells <- max(target_cells, 1000)  # Minimum 1000 cells
+    
+    cat(sprintf("  Downsampling to approximately %d cells...\n", target_cells))
     
     # Randomly sample cells to keep processing manageable
     set.seed(42)  # For reproducibility
-    keep_cells <- sample(n_cells, max_cells_threshold)
+    keep_cells <- sample(n_cells, target_cells)
     keep_cells <- sort(keep_cells)  # Keep sorted for efficiency
     
     # Downsample matrices
@@ -283,13 +296,13 @@ variantCell$set("public", "addSampleData", function(sample_id,
       norm_result$size_factors <- norm_result$size_factors[keep_cells]
     }
     
+    # Recalculate non-zero entries after downsampling
+    valid_mask <- dp_matched > 0
+    n_nonzero_after <- sum(valid_mask)
+    
     cat(sprintf("  Downsampled to %d cells.\n", length(keep_cells)))
+    cat(sprintf("  Non-zero entries after downsampling: %d\n", n_nonzero_after))
   }
-  
-  # Now calculate alt fractions with manageable dataset
-  valid_mask <- dp_matched > 0
-  n_nonzero <- sum(valid_mask)
-  cat(sprintf("  Valid mask created. Non-zero entries: %d\n", n_nonzero))
   
   cat("  Calculating alt fractions...\n")
   alt_fractions <- Matrix::sparseMatrix(i = integer(0), j = integer(0),
