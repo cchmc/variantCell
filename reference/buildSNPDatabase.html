@@ -62,8 +62,12 @@ features, and calculates database-wide metrics. Optionally adds rsID numbers fro
 
 
 <dt id="arg-vcf-file-path">VCF_file_path<a class="anchor" aria-label="anchor" href="#arg-vcf-file-path"></a></dt>
-<dd><p>Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation.
-Required if add_rs_ids = TRUE.</p></dd>
+<dd><p>Character. Path to reference VCF file (e.g., 1000 Genomes) for rs# annotation
+and/or population AF values. Required if add_rs_ids = TRUE or add_population_AF = TRUE.</p></dd>
+
+
+<dt id="arg-add-population-af">add_population_AF<a class="anchor" aria-label="anchor" href="#arg-add-population-af"></a></dt>
+<dd><p>Logical. Whether to add population allele frequencies from a reference VCF file. Default: FALSE.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -80,7 +84,7 @@ and stored in the snp_database field.</p>
 <li><p>If available, also creates a matrix of normalized counts</p></li>
 <li><p>Calculates database-wide metrics for each SNP</p></li>
 <li><p>Generates a QC report with summary statistics</p></li>
-<li><p>Optionally, adds rsIDs</p></li>
+<li><p>Optionally, adds rsIDs and/or population allele frequencies</p></li>
 </ol><p>The function handles the complexities of integrating data from multiple samples with
 potentially different sets of SNPs and metadata columns. It manages matrix indexing,
 column alignment, and other technical aspects needed to build a cohesive database.</p>
@@ -108,6 +112,10 @@ etc.) will use the unified database rather than individual sample data.</p>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Build the unified SNP database</span></span></span>
 <span class="r-in"><span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Build with rs# IDs and population AF from 1000 Genomes VCF</span></span></span>
+<span class="r-in"><span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span>add_rs_ids <span class="op">=</span> <span class="cn">TRUE</span>, add_population_AF <span class="op">=</span> <span class="cn">TRUE</span>,</span></span>
+<span class="r-in"><span>                         VCF_file_path <span class="op">=</span> <span class="st">"path/to/1000genomes.vcf"</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Now the project is ready for analysis</span></span></span>
 <span class="r-in"><span><span class="va">project</span><span class="op">$</span><span class="fu">setProjectIdentity</span><span class="op">(</span><span class="st">"cell_type"</span><span class="op">)</span></span></span>
