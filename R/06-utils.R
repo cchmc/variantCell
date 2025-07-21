@@ -499,7 +499,7 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 #'   If NULL, uses all samples in the database. Default: NULL.
 #'
 #' @return A named list where each element corresponds to a queried SNP:
-#'   \\item{snp_id}{Character vector of cell IDs meeting the criteria for this SNP}
+#'   \item{snp_id}{Character vector of cell IDs meeting the criteria for this SNP}
 #'   If a SNP is not found, returns an empty character vector with a warning.
 #'   The list also includes an attribute "summary" with per-SNP statistics.
 #'
@@ -522,7 +522,7 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 #' - Empty results may indicate SNP not found or no cells meeting criteria
 #'
 #' @examples
-#' \\dontrun{
+#' \dontrun{
 #' # Find cells expressing specific SNPs above 20% alt fraction
 #' expressing_cells <- project$getCellsForSNPs(
 #'   snp_ids = c("1:12345", "2:67890"),
@@ -553,8 +553,8 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 #' }
 #'
 #' @seealso
-#' \\code{\\link{findDESNPs}} for differential SNP analysis
-#' \\code{\\link{plotSNPs}} for SNP visualization
+#' \code{\link{findDESNPs}} for differential SNP analysis
+#' \code{\link{plotSNPs}} for SNP visualization
 variantCell$set("public", "getCellsForSNPs", function(snp_ids,
                                                       min_alt_frac = 0.2,
                                                       max_alt_frac = 1.0,
