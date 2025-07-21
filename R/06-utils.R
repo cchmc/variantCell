@@ -476,3 +476,226 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 
   invisible(self)
 })
+#' @title getCellsForSNPs: Extract Cell IDs Based on SNP Expression Criteria
+#' @name getCellsForSNPs
+#'
+#' @description
+#' Identifies cells that express specific SNPs at defined thresholds. This function
+#' extracts cell IDs based on alternative allele fraction and depth criteria for
+#' specified SNPs. Useful for annotating cells in Seurat or other single-cell objects
+#' based on genetic variant expression patterns.
+#'
+#' @param snp_ids Character vector. SNP identifiers to query. Can be chromosome:position
+#'   format (e.g., "1:12345") or rs IDs if available in the database.
+#' @param min_alt_frac Numeric. Minimum alternative allele fraction threshold.
+#'   Cells must have alt_frac >= this value to be included. Use 0 to include
+#'   cells not expressing the alternative allele. Default: 0.2.
+#' @param max_alt_frac Numeric. Maximum alternative allele fraction threshold.
+#'   Cells must have alt_frac <= this value to be included. Use 1.0 to include
+#'   all expressing cells. Set to 0 to get only reference allele cells. Default: 1.0.
+#' @param min_dp Integer. Minimum depth (read coverage) required for the SNP
+#'   in each cell. Cells with DP < min_dp are excluded. Default: 5.
+#' @param sample_ids Character vector, optional. Restrict analysis to specific samples.
+#'   If NULL, uses all samples in the database. Default: NULL.
+#'
+#' @return A named list where each element corresponds to a queried SNP:
+#'   \item{snp_id}{Character vector of cell IDs meeting the criteria for this SNP}
+#'   If a SNP is not found, returns an empty character vector with a warning.
+#'   The list also includes an attribute "summary" with per-SNP statistics.
+#'
+#' @details
+#' This function searches through the SNP database to find cells expressing
+#' specified SNPs within defined thresholds. It's particularly useful for:
+#' - Identifying cells carrying specific mutations
+#' - Finding cells not expressing certain alleles (min_alt_frac = 0, max_alt_frac = 0)
+#' - Annotating cell subsets based on genetic variants for downstream analysis
+#' - Quality control based on read depth requirements
+#'
+#' The function handles both chromosome:position identifiers and rs IDs if the
+#' database was built with rs ID annotation. SNPs are matched using exact string
+#' matching on the SNP identifier.
+#'
+#' @note
+#' - Cells must meet ALL criteria (alt_frac range AND min_dp) to be included
+#' - The function only searches SNPs present in the current database
+#' - For cells not expressing the alt allele, use min_alt_frac=0, max_alt_frac=0
+#' - Empty results may indicate SNP not found or no cells meeting criteria
+#'
+#' @examples
+#' \dontrun{
+#' # Find cells expressing specific SNPs above 20% alt fraction
+#' expressing_cells <- project$getCellsForSNPs(
+#'   snp_ids = c("1:12345", "2:67890"),
+#'   min_alt_frac = 0.2,
+#'   min_dp = 5
+#' )
+#'
+#' # Find cells NOT expressing the alternative allele (reference only)
+#' ref_cells <- project$getCellsForSNPs(
+#'   snp_ids = "1:12345",
+#'   min_alt_frac = 0,
+#'   max_alt_frac = 0,
+#'   min_dp = 5
+#' )
+#'
+#' # Find cells with high expression of alt allele (>80%)
+#' high_alt_cells <- project$getCellsForSNPs(
+#'   snp_ids = "rs123456",
+#'   min_alt_frac = 0.8,
+#'   min_dp = 10
+#' )
+#'
+#' # Use results to annotate Seurat object
+#' seurat_obj$expressing_snp1 <- ifelse(
+#'   colnames(seurat_obj) %in% expressing_cells$`1:12345`,
+#'   "expressing", "not_expressing"
+#' )
+#' }
+#'
+#' @seealso
+#' \code{\link{findDESNPs}} for differential SNP analysis
+#' \code{\link{plotSNPs}} for SNP visualization
+variantCell$set("public", "getCellsForSNPs", function(snp_ids,
+                                                      min_alt_frac = 0.2,
+                                                      max_alt_frac = 1.0,
+                                                      min_dp = 5,
+                                                      sample_ids = NULL) {
+  
+  # Input validation
+  if(is.null(self$snp_database) || is.null(self$snp_database$snp_info)) {
+    stop("SNP database not built. Use buildSNPDatabase() first.")
+  }
+  
+  if(!is.character(snp_ids) || length(snp_ids) == 0) {
+    stop("snp_ids must be a non-empty character vector")
+  }
+  
+  if(!is.numeric(min_alt_frac) || !is.numeric(max_alt_frac) || 
+     !is.numeric(min_dp) || length(min_alt_frac) != 1 || 
+     length(max_alt_frac) != 1 || length(min_dp) != 1) {
+    stop("min_alt_frac, max_alt_frac, and min_dp must be single numeric values")
+  }
+  
+  if(min_alt_frac < 0 || min_alt_frac > 1 || max_alt_frac < 0 || max_alt_frac > 1) {
+    stop("alt_frac thresholds must be between 0 and 1")
+  }
+  
+  if(min_alt_frac > max_alt_frac) {
+    stop("min_alt_frac cannot be greater than max_alt_frac")
+  }
+  
+  if(min_dp < 0) {
+    stop("min_dp must be >= 0")
+  }
+  
+  # Filter samples if specified
+  if(!is.null(sample_ids)) {
+    if(!all(sample_ids %in% names(self$samples))) {
+      missing_samples <- setdiff(sample_ids, names(self$samples))
+      stop(sprintf("Sample(s) not found: %s", paste(missing_samples, collapse=", ")))
+    }
+    available_cells <- self$snp_database$cell_metadata$sample_id %in% sample_ids
+    cell_subset <- which(available_cells)
+  } else {
+    cell_subset <- 1:nrow(self$snp_database$cell_metadata)
+  }
+  
+  # Initialize result list and summary
+  result_list <- list()
+  summary_stats <- data.frame(
+    snp_id = character(0),
+    snp_found = logical(0),
+    total_cells_with_data = integer(0),
+    cells_meeting_criteria = integer(0),
+    mean_alt_frac = numeric(0),
+    mean_dp = numeric(0),
+    stringsAsFactors = FALSE
+  )
+  
+  # Process each SNP
+  for(snp_id in snp_ids) {
+    cat(sprintf("Processing SNP: %s\n", snp_id))
+    
+    # Find SNP in database - check both exact match and if rs IDs exist
+    snp_idx <- NULL
+    if(snp_id %in% self$snp_database$snp_info$snp_id) {
+      snp_idx <- which(self$snp_database$snp_info$snp_id == snp_id)
+    } else if("rs_id" %in% colnames(self$snp_database$snp_info) &&
+              snp_id %in% self$snp_database$snp_info$rs_id) {
+      snp_idx <- which(self$snp_database$snp_info$rs_id == snp_id)
+    }
+    
+    if(is.null(snp_idx) || length(snp_idx) == 0) {
+      warning(sprintf("SNP '%s' not found in database", snp_id))
+      result_list[[snp_id]] <- character(0)
+      
+      # Add to summary
+      summary_stats <- rbind(summary_stats, data.frame(
+        snp_id = snp_id,
+        snp_found = FALSE,
+        total_cells_with_data = 0,
+        cells_meeting_criteria = 0,
+        mean_alt_frac = NA,
+        mean_dp = NA,
+        stringsAsFactors = FALSE
+      ))
+      next
+    }
+    
+    # Get AD and DP data for this SNP across specified cells
+    ad_row <- self$snp_database$ad_matrix[snp_idx, cell_subset]
+    dp_row <- self$snp_database$dp_matrix[snp_idx, cell_subset]
+    
+    # Calculate alt fractions
+    alt_fractions <- rep(0, length(dp_row))
+    valid_dp <- dp_row > 0
+    alt_fractions[valid_dp] <- ad_row[valid_dp] / dp_row[valid_dp]
+    
+    # Apply filters
+    depth_filter <- dp_row >= min_dp
+    alt_frac_filter <- alt_fractions >= min_alt_frac & alt_fractions <= max_alt_frac
+    combined_filter <- depth_filter & alt_frac_filter
+    
+    # Get qualifying cell IDs
+    qualifying_cell_indices <- cell_subset[combined_filter]
+    qualifying_cell_ids <- self$snp_database$cell_metadata$cell_id[qualifying_cell_indices]
+    result_list[[snp_id]] <- qualifying_cell_ids
+    
+    # Calculate summary statistics for cells with data
+    cells_with_data <- cell_subset[valid_dp]
+    
+    summary_stats <- rbind(summary_stats, data.frame(
+      snp_id = snp_id,
+      snp_found = TRUE,
+      total_cells_with_data = length(cells_with_data),
+      cells_meeting_criteria = length(qualifying_cell_ids),
+      mean_alt_frac = ifelse(length(cells_with_data) > 0, 
+                            mean(alt_fractions[valid_dp]), NA),
+      mean_dp = ifelse(length(cells_with_data) > 0, 
+                      mean(dp_row[valid_dp]), NA),
+      stringsAsFactors = FALSE
+    ))
+    
+    cat(sprintf("  Found: %d cells meeting criteria (%.1f%% alt_frac range, %d+ DP)\n",
+                length(qualifying_cell_ids), min_alt_frac*100, min_dp))
+  }
+  
+  # Add summary as attribute
+  attr(result_list, "summary") <- summary_stats
+  
+  # Print overall summary
+  cat(sprintf("\nSummary for %d SNP(s):\n", length(snp_ids)))
+  for(i in 1:nrow(summary_stats)) {
+    s <- summary_stats[i, ]
+    if(s$snp_found) {
+      cat(sprintf("  %s: %d/%d cells (%.1f%%)\n", 
+                  s$snp_id, s$cells_meeting_criteria, s$total_cells_with_data,
+                  ifelse(s$total_cells_with_data > 0, 
+                        100 * s$cells_meeting_criteria / s$total_cells_with_data, 0)))
+    } else {
+      cat(sprintf("  %s: NOT FOUND\n", s$snp_id))
+    }
+  }
+  
+  return(result_list)
+})
