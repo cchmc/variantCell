@@ -95,6 +95,8 @@
 <strong>Cell Filtering</strong>: <code><a href="reference/subsetVariantCell.html">subsetVariantCell()</a></code> for cell subset operations</li>
 <li>
 <strong>Downsampling</strong>: <code><a href="reference/downsampleVariant.html">downsampleVariant()</a></code> for balancing cell numbers</li>
+<li>
+<strong>Cell Extraction</strong>: <code><a href="reference/getCellsForSNPs.html">getCellsForSNPs()</a></code> for identifying cells expressing specific SNPs</li>
 </ul></div>
 </div>
 </div>
@@ -158,6 +160,77 @@
 </ul></div>
 </div>
 <div class="section level2">
+<h2 id="new-feature---cell-extraction-by-snp-expression-072125">New Feature - Cell Extraction by SNP Expression (07/21/25)<a class="anchor" aria-label="anchor" href="#new-feature---cell-extraction-by-snp-expression-072125"></a></h2>
+<div class="section level3">
+<h3 id="function-added-getcellsforsnps">Function Added: <code>getCellsForSNPs()</code>
+<a class="anchor" aria-label="anchor" href="#function-added-getcellsforsnps"></a></h3>
+<p>A new utility function was added to extract cell IDs based on SNP expression criteria, enabling precise cell annotation in downstream analysis tools like Seurat.</p>
+<div class="section level4">
+<h4 id="key-features">Key Features:<a class="anchor" aria-label="anchor" href="#key-features"></a></h4>
+<ol style="list-style-type: decimal"><li>
+<strong>Flexible SNP Identification</strong>: Accepts both chromosome:position format (e.g., “1:12345”) and rs IDs</li>
+<li>
+<strong>Dual Threshold Control</strong>:
+<ul><li>
+<code>min_alt_frac</code> and <code>max_alt_frac</code> for alternative allele fraction range</li>
+<li>
+<code>min_dp</code> for minimum read depth requirement</li>
+</ul></li>
+<li>
+<strong>Quality Filtering</strong>: Only includes cells meeting both expression and depth criteria</li>
+<li>
+<strong>Sample Restriction</strong>: Optional filtering to specific samples</li>
+<li>
+<strong>Comprehensive Output</strong>: Returns cell IDs plus summary statistics</li>
+</ol></div>
+<div class="section level4">
+<h4 id="usage-examples">Usage Examples:<a class="anchor" aria-label="anchor" href="#usage-examples"></a></h4>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Find cells expressing SNPs above 20% alt fraction</span></span>
+<span><span class="va">expressing_cells</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">getCellsForSNPs</span><span class="op">(</span></span>
+<span>  snp_ids <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"rs12345"</span>, <span class="st">"2:67890"</span><span class="op">)</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,</span>
+<span>  min_dp <span class="op">=</span> <span class="fl">5</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Find cells NOT expressing the alternative allele (reference only)</span></span>
+<span><span class="va">ref_cells</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">getCellsForSNPs</span><span class="op">(</span></span>
+<span>  snp_ids <span class="op">=</span> <span class="st">"rs10314"</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  max_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  min_dp <span class="op">=</span> <span class="fl">5</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Use results to annotate Seurat object</span></span>
+<span><span class="va">seurat_obj</span><span class="op">$</span><span class="va">snp_status</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">seurat_obj</span><span class="op">)</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">expressing_cells</span><span class="op">$</span><span class="va">rs12345</span>,</span>
+<span>  <span class="st">"expressing"</span>, <span class="st">"not_expressing"</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level4">
+<h4 id="output-structure">Output Structure:<a class="anchor" aria-label="anchor" href="#output-structure"></a></h4>
+<ul><li>
+<strong>Named list</strong>: Each SNP returns a vector of qualifying cell IDs</li>
+<li>
+<strong>Summary statistics</strong>: Attached as attributes showing:
+<ul><li>Total cells with data (any reads for the SNP)</li>
+<li>Cells meeting criteria (passing both alt_frac and depth filters)</li>
+<li>Mean alternative allele fraction and depth</li>
+<li>Success rate percentage</li>
+</ul></li>
+</ul></div>
+<div class="section level4">
+<h4 id="quality-control">Quality Control:<a class="anchor" aria-label="anchor" href="#quality-control"></a></h4>
+<p>The function distinguishes between: - <strong><code>total_cells_with_data</code></strong>: Cells with any reads for the SNP (DP &gt; 0) - <strong><code>cells_meeting_criteria</code></strong>: Cells passing both expression and minimum depth thresholds</p>
+<p>This ensures reliable, high-quality cell annotations by filtering out low-coverage measurements that might yield unreliable alternative allele fractions.</p>
+</div>
+<div class="section level4">
+<h4 id="implementation-location">Implementation Location:<a class="anchor" aria-label="anchor" href="#implementation-location"></a></h4>
+<p>The function is located in <code>R/06-utils.R</code> and integrates seamlessly with the existing SNP database structure, properly handling the <code>snp_info</code> metadata and <code>cell_metadata$cell_id</code> columns.</p>
+</div>
+</div>
+</div>
+<div class="section level2">
 <h2 id="file-structure">File Structure<a class="anchor" aria-label="anchor" href="#file-structure"></a></h2>
 <pre><code>variantCell/
 ├── R/
@@ -193,7 +266,7 @@
 </li>
 </ol></div>
 <div class="section level2">
-<h2 id="key-features">Key Features<a class="anchor" aria-label="anchor" href="#key-features"></a></h2>
+<h2 id="key-features-1">Key Features<a class="anchor" aria-label="anchor" href="#key-features-1"></a></h2>
 <ul><li>
 <strong>Multi-format Support</strong>: Works with Seurat, SingleCellExperiment, and data frames</li>
 <li>
