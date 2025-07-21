@@ -37,6 +37,7 @@ The package is built around an R6 class (`variantCell`) that manages:
 - **Identity Management**: `setProjectIdentity()` and `getCurrentIdentity()`
 - **Cell Filtering**: `subsetVariantCell()` for cell subset operations
 - **Downsampling**: `downsampleVariant()` for balancing cell numbers
+- **Cell Extraction**: `getCellsForSNPs()` for identifying cells expressing specific SNPs
 
 ## Major Bug Fix - Memory Management for Large Samples (07/18/25)
 
@@ -87,6 +88,64 @@ if(n_nonzero > max_nonzero_entries) {
 - **Processing Time**: Reduced from hours to minutes
 - **Memory Usage**: Stays within manageable limits
 - **Statistical Power**: Maintains thousands of cells for robust analysis
+
+## New Feature - Cell Extraction by SNP Expression (07/21/25)
+
+### Function Added: `getCellsForSNPs()`
+
+A new utility function was added to extract cell IDs based on SNP expression criteria, enabling precise cell annotation in downstream analysis tools like Seurat.
+
+#### Key Features:
+1. **Flexible SNP Identification**: Accepts both chromosome:position format (e.g., "1:12345") and rs IDs
+2. **Dual Threshold Control**: 
+   - `min_alt_frac` and `max_alt_frac` for alternative allele fraction range
+   - `min_dp` for minimum read depth requirement
+3. **Quality Filtering**: Only includes cells meeting both expression and depth criteria
+4. **Sample Restriction**: Optional filtering to specific samples
+5. **Comprehensive Output**: Returns cell IDs plus summary statistics
+
+#### Usage Examples:
+
+```r
+# Find cells expressing SNPs above 20% alt fraction
+expressing_cells <- project$getCellsForSNPs(
+  snp_ids = c("rs12345", "2:67890"),
+  min_alt_frac = 0.2,
+  min_dp = 5
+)
+
+# Find cells NOT expressing the alternative allele (reference only)
+ref_cells <- project$getCellsForSNPs(
+  snp_ids = "rs10314",
+  min_alt_frac = 0,
+  max_alt_frac = 0,
+  min_dp = 5
+)
+
+# Use results to annotate Seurat object
+seurat_obj$snp_status <- ifelse(
+  colnames(seurat_obj) %in% expressing_cells$rs12345,
+  "expressing", "not_expressing"
+)
+```
+
+#### Output Structure:
+- **Named list**: Each SNP returns a vector of qualifying cell IDs
+- **Summary statistics**: Attached as attributes showing:
+  - Total cells with data (any reads for the SNP)
+  - Cells meeting criteria (passing both alt_frac and depth filters)
+  - Mean alternative allele fraction and depth
+  - Success rate percentage
+
+#### Quality Control:
+The function distinguishes between:
+- **`total_cells_with_data`**: Cells with any reads for the SNP (DP > 0)
+- **`cells_meeting_criteria`**: Cells passing both expression and minimum depth thresholds
+
+This ensures reliable, high-quality cell annotations by filtering out low-coverage measurements that might yield unreliable alternative allele fractions.
+
+#### Implementation Location:
+The function is located in `R/06-utils.R` and integrates seamlessly with the existing SNP database structure, properly handling the `snp_info` metadata and `cell_metadata$cell_id` columns.
 
 ## File Structure
 
