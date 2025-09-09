@@ -1768,10 +1768,12 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
       }
       
       # Calculate enhanced presence score
-      presence_score <- calculate_presence_score(
-        alt_frac_diff, sample_consistency, depth_factor, presence_score_weights
-      )
-      
+    presence_score <- calculate_presence_score(
+      alt_frac_diff, sample_consistency, depth_factor,
+      c(fold_change = presence_score_weights[1],
+        sample_consistency = presence_score_weights[2],
+        depth_reliability = presence_score_weights[3])
+    )      
       # Statistical testing
       if(calc_p_values) {
         stat_result <- perform_presence_test(
