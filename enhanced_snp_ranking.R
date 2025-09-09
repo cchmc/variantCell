@@ -374,7 +374,7 @@ compare_ranking_methods <- function(snp_data, focus_group = "group1", top_n = 20
   return(list(adaptive = adaptive_results, pca = pca_results, ensemble = ensemble_results))
 }
 
-snp_data <- read.csv("~/Desktop/D-Drive/sc-analysis/integrated/11_7_23/SNP-paper/LAD_vs_No_ACR_Donor_GEX.csv")
+snp_data <- read.csv()
 
 View(snp_data)
 
@@ -383,3 +383,5 @@ snp_results_compare <- compare_ranking_methods(snp_data=snp_data, focus_group = 
 snp_results <- enhanced_snp_ranking(snp_data = snp_data, focus_group = 'LAD')
 
 View(snp_results$top_snps)
+
+write.csv(snp_results$full_results, "")
