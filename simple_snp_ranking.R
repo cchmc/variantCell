@@ -13,25 +13,26 @@
 #'   \item{summary}{List with analysis summary and parameters used}
 #' 
 #' @details
-#' Default weights:
-#' - presence: 0.25 (presence pattern in target group)
-#' - enrichment: 0.20 (population AF fold enrichment)  
+#' Optimized weights based on SNP differential analysis:
+#' - presence: 0.35 (presence pattern in target group - most important)
+#' - enrichment: 0.25 (population AF fold enrichment - key for group specificity)  
 #' - gex_impact: 0.20 (gene expression magnitude & significance)
 #' - effect_size: 0.15 (SNP statistical effect)
-#' - quality: 0.10 (overall data quality)
-#' - alt_frac: 0.05 (allele fraction difference)
-#' - rarity: 0.05 (population rarity bonus)
+#' - quality: 0.05 (overall data quality)
+#' - alt_frac: 0.00 (removed - redundant with effect_size)
+#' - rarity: 0.00 (removed - group-relevant SNPs tend to be common variants)
 
 simple_snp_ranking <- function(snp_data, 
                               focus_group = "group1",
                               top_n = 50,
-                              weights = c(presence = 0.25,
-                                        enrichment = 0.20,
-                                        gex_impact = 0.20, 
-                                        effect_size = 0.15,
-                                        quality = 0.10,
-                                        alt_frac = 0.05,
-                                        rarity = 0.05)) {
+                              verbose = FALSE, 
+                              weights = c(presence = 0.35,      # Increased - most important
+                                        enrichment = 0.25,     # High - population comparison key
+                                        gex_impact = 0.20,     # Gene expression effects
+                                        effect_size = 0.15,    # Statistical significance
+                                        quality = 0.05,        # Data quality check
+                                        alt_frac = 0.00,       # Remove - redundant with effect_size
+                                        rarity = 0.00)) {      # Remove - data shows common SNPs matter
   
   # Validate inputs
   required_cols <- c("rs_id", "gene_name", "effect_size", "overall_quality", 
@@ -45,13 +46,51 @@ simple_snp_ranking <- function(snp_data,
   # Ensure weights sum to 1
   weights <- weights / sum(weights)
   
-  # Set up enrichment columns based on focus group
-  if(focus_group == "group1") {
-    enrichment_col <- "group1_fold_enrichment"
-    enrichment_level_col <- "group1_enrichment_level"
+  # Detect available enrichment columns
+  available_enrichment_cols <- grep("_fold_enrichment$", colnames(snp_data), value = TRUE)
+  
+  if(length(available_enrichment_cols) == 0) {
+    stop("No fold enrichment columns found. Expected columns like 'group1_fold_enrichment'")
+  }
+  
+  # Extract available group numbers/names from enrichment columns
+  available_groups <- gsub("_fold_enrichment$", "", available_enrichment_cols)
+  
+  if(verbose) {
+    cat("Available enrichment columns:", paste(available_enrichment_cols, collapse = ", "), "\n")
+  }
+  
+  # Map focus_group to enrichment columns
+  # For named groups like 'LAD', 'No_ACR', map to group1/group2 based on presence patterns
+  if(focus_group %in% available_groups) {
+    # Direct match (e.g., focus_group = "group1")
+    enrichment_col <- paste0(focus_group, "_fold_enrichment")
+    enrichment_level_col <- paste0(focus_group, "_enrichment_level")
+    presence_search_term <- focus_group
   } else {
-    enrichment_col <- "group2_fold_enrichment" 
-    enrichment_level_col <- "group2_enrichment_level"
+    # Named group (e.g., focus_group = "LAD") - need to map to group1/group2
+    # Check presence column to see which group this represents
+    if("presence" %in% colnames(snp_data)) {
+      unique_patterns <- unique(snp_data$presence[!is.na(snp_data$presence)])
+      focus_in_patterns <- unique_patterns[grepl(focus_group, unique_patterns, ignore.case = TRUE)]
+      
+      if(length(focus_in_patterns) > 0) {
+        # Focus group found in presence patterns, now map to group1/group2
+        if("group1_fold_enrichment" %in% available_enrichment_cols) {
+          enrichment_col <- "group1_fold_enrichment"
+          enrichment_level_col <- "group1_enrichment_level"
+          presence_search_term <- focus_group
+          if(verbose) cat(sprintf("Mapped focus group '%s' to group1 enrichment columns\n", focus_group))
+        } else {
+          stop("Found focus group in presence patterns but no group1_fold_enrichment column available")
+        }
+      } else {
+        stop(sprintf("Focus group '%s' not found in presence patterns. Available patterns: %s", 
+                    focus_group, paste(unique_patterns, collapse = ", ")))
+      }
+    } else {
+      stop("No 'presence' column found to map named focus group")
+    }
   }
   
   if(!enrichment_col %in% colnames(snp_data)) {
@@ -61,17 +100,36 @@ simple_snp_ranking <- function(snp_data,
   cat("Calculating component scores for", nrow(snp_data), "SNPs...\n")
   
   # Component 1: Presence Score (0-1, higher = present in target group)
-  # Map focus group to presence patterns
-  if(focus_group == "group1") {
-    target_patterns <- c("Present in LAD", "LAD_specific", "group1_specific") 
-  } else {
-    target_patterns <- c("Present in No_ACR", "No_ACR_specific", "group2_specific")
-  }
+  # Automatically detect presence patterns for the focus group
+  presence_score <- rep(0, nrow(snp_data))
+  
+  # Get unique presence patterns to understand the data
+  unique_patterns <- unique(snp_data$presence[!is.na(snp_data$presence)])
+  
+  # Look for presence patterns that match the focus group
+  # Try multiple pattern matching strategies using the presence search term
+  focus_patterns <- unique_patterns[grepl(presence_search_term, unique_patterns, ignore.case = TRUE)]
+  
+  # Also look for patterns that contain the focus group name in "Present in X" format
+  present_in_patterns <- unique_patterns[grepl(paste0("Present in.*", presence_search_term), unique_patterns, ignore.case = TRUE)]
+  
+  # Look for specific patterns
+  specific_patterns <- unique_patterns[grepl(paste0(presence_search_term, ".*specific"), unique_patterns, ignore.case = TRUE)]
+  
+  # Combine all target patterns
+  target_patterns <- unique(c(focus_patterns, present_in_patterns, specific_patterns))
+  
+  # Remove shared/both patterns from target patterns
+  target_patterns <- target_patterns[!grepl("both|shared", target_patterns, ignore.case = TRUE)]
   
   # Score presence patterns
-  presence_score <- rep(0, nrow(snp_data))
   presence_score[snp_data$presence %in% target_patterns] <- 1.0
   presence_score[grepl("both|shared", snp_data$presence, ignore.case = TRUE)] <- 0.3  # Lower score for shared
+  
+  if(verbose) {
+    cat(sprintf("  Detected %d target presence patterns for %s:\n", length(target_patterns), focus_group))
+    if(length(target_patterns) > 0) cat("   ", paste(target_patterns, collapse = ", "), "\n")
+  }
   
   # Component 2: Enrichment Score (0-1, higher = more enriched in focus group)
   enrichment_raw <- snp_data[[enrichment_col]]
@@ -184,14 +242,14 @@ simple_snp_ranking <- function(snp_data,
 demonstrate_ranking <- function(snp_data) {
   cat("=== Simple SNP Ranking Demonstration ===\n\n")
   
-  # Standard ranking focusing on group1 (LAD)
-  cat("1. Standard ranking (focus on LAD enrichment):\n")
-  lad_results <- simple_snp_ranking(snp_data, focus_group = "group1", top_n = 20)
+  # Standard ranking focusing on group1 
+  cat("1. Standard ranking (focus on group1 enrichment):\n")
+  group1_results <- simple_snp_ranking(snp_data, focus_group = "group1", top_n = 20)
   
   # Show top 5
-  cat("\nTop 5 LAD-enriched candidates:\n")
-  print(lad_results$top_snps[1:5, c("rank", "rs_id", "gene_name", "final_score", 
-                                   "presence_score", "presence_pattern", "enrichment_score")])
+  cat("\nTop 5 group1-enriched candidates:\n")
+  print(group1_results$top_snps[1:5, c("rank", "rs_id", "gene_name", "final_score", 
+                                      "presence_score", "presence_pattern", "enrichment_score")])
   
   # Alternative weighting: prioritize gene expression impact
   cat("\n\n2. Gene expression focused ranking:\n") 
@@ -205,5 +263,15 @@ demonstrate_ranking <- function(snp_data) {
   print(gex_results$top_snps[1:5, c("rank", "rs_id", "gene_name", "final_score",
                                    "presence_score", "gex_impact_score", "gex_log2fc")])
   
-  return(list(standard = lad_results, gex_focused = gex_results))
+  return(list(standard = group1_results, gex_focused = gex_results))
 }
+
+snp_results <- simple_snp_ranking(snp_LAD, focus_group = 'LAD')
+
+View(snp_results$top_snps)
+
+setwd("~/Desktop/D-Drive/sc-analysis/integrated/11_7_23/SNP-paper")
+
+write.csv(snp_results$full_results, 'simple_snp_results.csv')
+
+read.csv()
