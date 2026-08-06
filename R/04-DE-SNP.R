@@ -1993,9 +1993,10 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
 #'                  gene_name and Average (average FC across clusters)
 #' @param method Character vector. Prioritization methods to use:
 #'               "fc_consistency" - Score based on GEX fold change consistency
-#'               "ml_regression" - Machine learning regression prioritization  
-#'               "llm_clinical" - LLM-based clinical relevance scoring
-#'               Default: c("fc_consistency", "ml_regression", "llm_clinical")
+#'               "ml_regression" - Machine learning regression prioritization
+#'               "llm_clinical" - LLM-based clinical relevance scoring. Opt-in
+#'               only: it issues billable calls to an external LLM API.
+#'               Default: c("fc_consistency", "ml_regression")
 #' @param ml_features Character vector. Features to use for ML regression.
 #'                    Default: c("alt_frac_diff", "effect_size", "presence_score", "overall_quality", 
 #'                              "population_AF", "group1_fold_enrichment", "group2_fold_enrichment")
@@ -2063,17 +2064,22 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
 #' }
 #'
 #' @export
-prioritizeSNPs <- function(snp_df, 
+prioritizeSNPs <- function(snp_df,
                           gex_fc_df,
-                          method = c("fc_consistency", "ml_regression", "llm_clinical"),
-                          ml_features = c("alt_frac_diff", "effect_size", "presence_score", 
-                                        "overall_quality", "population_AF", 
+                          method = c("fc_consistency", "ml_regression"),
+                          ml_features = c("alt_frac_diff", "effect_size", "presence_score",
+                                        "overall_quality", "population_AF",
                                         "group1_fold_enrichment", "group2_fold_enrichment"),
                           top_n_ml = 50,
                           top_n_final = 20,
                           llm_prompt_template = NULL,
                           verbose = TRUE) {
-  
+
+  # Validate requested methods. "llm_clinical" is opt-in because it issues
+  # billable calls to an external API; it is not part of the default.
+  valid_methods <- c("fc_consistency", "ml_regression", "llm_clinical")
+  method <- unique(match.arg(method, valid_methods, several.ok = TRUE))
+
   if(verbose) {
     cat("=== SNP Prioritization Analysis ===\n")
     cat("Input data:\n")
@@ -2097,22 +2103,30 @@ prioritizeSNPs <- function(snp_df,
     stop(paste("Missing required columns in gex_fc_df:", paste(missing_gex_cols, collapse=", ")))
   }
   
+  # Every score is realigned back onto snp_df through .snp_key, a stable
+  # per-row identifier. rs_id cannot serve as the key: it is NA for any SNP
+  # without a dbSNP annotation (and match() happily matches NA to NA, which
+  # would collapse every unannotated SNP onto the first one), and it repeats
+  # whenever a SNP maps to more than one gene.
+  snp_df$.snp_key <- seq_len(nrow(snp_df))
+
   # Initialize results list
   results <- list()
   all_scores <- data.frame(
+    .snp_key = snp_df$.snp_key,
     rs_id = snp_df$rs_id,
     gene_name = snp_df$gene_name,
     stringsAsFactors = FALSE
   )
-  
+
   # Method 1: Fold Change Consistency Scoring
   if("fc_consistency" %in% method) {
     if(verbose) cat("1. Computing fold change consistency scores...\n")
-    
+
     fc_scores <- .compute_fc_consistency_scores(snp_df, gex_fc_df, verbose)
     results$fc_consistency_scores <- fc_scores
-    all_scores$fc_consistency_score <- fc_scores$consistency_score[match(all_scores$rs_id, fc_scores$rs_id)]
-    
+    all_scores$fc_consistency_score <- fc_scores$consistency_score[match(all_scores$.snp_key, fc_scores$.snp_key)]
+
     if(verbose) {
       cat(sprintf("   Computed scores for %d SNPs\n", nrow(fc_scores)))
       cat(sprintf("   Mean consistency score: %.3f\n", mean(fc_scores$consistency_score, na.rm=TRUE)))
@@ -2125,7 +2139,7 @@ prioritizeSNPs <- function(snp_df,
     
     ml_scores <- .compute_ml_prioritization(snp_df, ml_features, verbose)
     results$ml_scores <- ml_scores
-    all_scores$ml_score <- ml_scores$ml_priority_score[match(all_scores$rs_id, ml_scores$rs_id)]
+    all_scores$ml_score <- ml_scores$ml_priority_score[match(all_scores$.snp_key, ml_scores$.snp_key)]
     
     if(verbose) {
       cat(sprintf("   Computed ML scores for %d SNPs\n", nrow(ml_scores)))
@@ -2142,7 +2156,7 @@ prioritizeSNPs <- function(snp_df,
     
     llm_assessments <- .compute_llm_clinical_scores(top_snps_for_llm, llm_prompt_template, verbose)
     results$llm_assessments <- llm_assessments
-    all_scores$llm_clinical_score <- llm_assessments$clinical_relevance_score[match(all_scores$rs_id, llm_assessments$rs_id)]
+    all_scores$llm_clinical_score <- llm_assessments$clinical_relevance_score[match(all_scores$.snp_key, llm_assessments$.snp_key)]
     
     if(verbose) {
       cat(sprintf("   Assessed %d top SNPs with LLM\n", nrow(llm_assessments)))
@@ -2154,47 +2168,69 @@ prioritizeSNPs <- function(snp_df,
   # Combine scores and create final prioritization
   if(verbose) cat("4. Combining scores and generating final prioritization...\n")
   
-  final_priority <- .combine_prioritization_scores(all_scores, method, snp_df)
-  
+  combined <- .combine_prioritization_scores(all_scores, method, snp_df)
+  final_priority <- combined$results
+
   # Select top N SNPs
   top_snps <- head(final_priority[order(-final_priority$combined_priority_score, na.last=TRUE), ], top_n_final)
-  
+
   # Generate summary
   summary_stats <- .generate_prioritization_summary(results, all_scores, top_snps, method)
-  
+
   if(verbose) {
     cat("5. Prioritization complete!\n")
     cat(sprintf("   Final top %d SNPs selected\n", nrow(top_snps)))
-    cat(sprintf("   Top SNP: %s (gene: %s, score: %.3f)\n", 
-                top_snps$rs_id[1], top_snps$gene_name[1], top_snps$combined_priority_score[1]))
+    if(nrow(top_snps) > 0) {
+      cat(sprintf("   Top SNP: %s (gene: %s, score: %.3f)\n",
+                  ifelse(is.na(top_snps$rs_id[1]), "<no rs_id>", top_snps$rs_id[1]),
+                  top_snps$gene_name[1], top_snps$combined_priority_score[1]))
+    } else {
+      cat("   No SNPs passed prioritization\n")
+    }
     cat("\n")
   }
-  
+
   return(list(
     prioritized_snps = top_snps,
     fc_consistency_scores = results$fc_consistency_scores,
     ml_scores = results$ml_scores,
     llm_assessments = results$llm_assessments,
-    method_weights = final_priority$method_weights[1],
+    method_weights = combined$method_weights,
     summary = summary_stats
   ))
 }
 
 # Helper function: Compute fold change consistency scores
 .compute_fc_consistency_scores <- function(snp_df, gex_fc_df, verbose = TRUE) {
-  
-  # Merge SNP data with GEX fold change data
-  merged_data <- merge(snp_df, gex_fc_df, by = "gene_name", all.x = TRUE)
-  
-  # Compute consistency scores
+
+  if(is.null(snp_df$.snp_key)) snp_df$.snp_key <- seq_len(nrow(snp_df))
+
+  # A gene may appear more than once in gex_fc_df; keep the first entry per gene
+  # so the join below cannot expand snp_df's row count.
+  gex_lookup <- gex_fc_df[!duplicated(gex_fc_df$gene_name), , drop = FALSE]
+
+  # Look up rather than merge(): merge() sorts its output by the `by` column,
+  # which would silently reorder the rows relative to snp_df.
+  gex_idx <- match(snp_df$gene_name, gex_lookup$gene_name)
+
+  # Compute consistency scores, one row per input SNP, in input order
   consistency_scores <- data.frame(
-    rs_id = merged_data$rs_id,
-    gene_name = merged_data$gene_name,
-    snp_gex_log2fc = merged_data$GEX_avg_log2FC,
-    condition_avg_fc = merged_data$Average,
+    .snp_key = snp_df$.snp_key,
+    rs_id = snp_df$rs_id,
+    gene_name = snp_df$gene_name,
+    snp_gex_log2fc = snp_df$GEX_avg_log2FC,
+    condition_avg_fc = gex_lookup$Average[gex_idx],
     stringsAsFactors = FALSE
   )
-  
+
+  if(verbose) {
+    n_unmatched <- sum(is.na(gex_idx))
+    if(n_unmatched > 0) {
+      cat(sprintf("   %d/%d SNPs had no matching gene in gex_fc_df (scored 0)\n",
+                  n_unmatched, nrow(snp_df)))
+    }
+  }
+
   # Calculate consistency score (higher when SNP effect aligns with condition effect)
   consistency_scores$fc_direction_match <- sign(consistency_scores$snp_gex_log2fc) == sign(log2(consistency_scores$condition_avg_fc))
   consistency_scores$fc_magnitude_similarity <- 1 - abs(consistency_scores$snp_gex_log2fc - log2(consistency_scores$condition_avg_fc)) / 
@@ -2215,19 +2251,23 @@ prioritizeSNPs <- function(snp_df,
 
 # Helper function: Compute ML prioritization scores
 .compute_ml_prioritization <- function(snp_df, ml_features, verbose = TRUE) {
-  
+
+  if(is.null(snp_df$.snp_key)) snp_df$.snp_key <- seq_len(nrow(snp_df))
+
   # Check which features are available
   available_features <- intersect(ml_features, colnames(snp_df))
   missing_features <- setdiff(ml_features, colnames(snp_df))
-  
+
   if (verbose && length(missing_features) > 0) {
-    cat(sprintf("   Warning: Missing ML features: %s\n", 
+    cat(sprintf("   Warning: Missing ML features: %s\n",
                 paste(missing_features, collapse = ", ")))
   }
-  
+
   if (length(available_features) == 0) {
     warning("No ML features available in SNP dataframe")
-    return(data.frame(rs_id = snp_df$rs_id, ml_priority_score = 0))
+    return(data.frame(.snp_key = snp_df$.snp_key, rs_id = snp_df$rs_id,
+                      gene_name = snp_df$gene_name, ml_priority_score = 0,
+                      stringsAsFactors = FALSE))
   }
   
   # Extract feature matrix
@@ -2385,19 +2425,23 @@ prioritizeSNPs <- function(snp_df,
                ensemble_weights["pc"] * pc_score +
                ensemble_weights["rank"] * rank_score
   
-  # Add controlled randomness for tie-breaking
-  set.seed(42)
-  ml_scores <- ml_scores + rnorm(length(ml_scores), 0, 0.02)
-  
+  # No jitter is added here. The previous implementation called set.seed(42)
+  # and added rnorm() noise for "tie-breaking", which (a) reset the caller's
+  # global RNG stream as a side effect, changing the results of anything run
+  # afterwards in the same session, and (b) perturbed genuinely different
+  # scores, not just ties. order() already breaks ties deterministically by
+  # original row position.
+
   # Final normalization
   ml_scores <- pmax(0, pmin(1, ml_scores))  # Clamp to [0,1]
-  
+
   if (verbose) {
     cat(sprintf("   Ensemble ML scoring complete: mean=%.3f, sd=%.3f\n", 
                 mean(ml_scores), sd(ml_scores)))
   }
   
   return(data.frame(
+    .snp_key = snp_df$.snp_key,
     rs_id = snp_df$rs_id,
     gene_name = snp_df$gene_name,
     ml_priority_score = ml_scores,
@@ -2419,11 +2463,15 @@ prioritizeSNPs <- function(snp_df,
   if(length(available_score_cols) > 0) {
     composite_score <- rowMeans(all_scores[, available_score_cols, drop = FALSE], na.rm = TRUE)
   } else {
-    # Fallback to effect size or another criterion
+    # Fallback to effect size or another criterion. Note: the previous
+    # implementation fell back to runif(), which both selected SNPs for paid
+    # LLM assessment at random and consumed the caller's RNG stream.
     if("effect_size" %in% colnames(snp_df)) {
       composite_score <- abs(snp_df$effect_size)
     } else {
-      composite_score <- runif(nrow(all_scores))
+      warning("No scores or effect_size available to rank SNPs for LLM assessment; ",
+              "using input order.")
+      composite_score <- rev(seq_len(nrow(all_scores)))
     }
   }
   
@@ -2490,12 +2538,17 @@ prioritizeSNPs <- function(snp_df,
     }
   }
   
+  # Attach the stable key after the batch loop: the loop assigns whole rows
+  # (clinical_scores[i, ] <- batch_results), so the column set must match what
+  # .query_llm_for_clinical_assessment returns.
+  clinical_scores$.snp_key <- top_snps$.snp_key
+
   if (verbose) {
     successful_assessments <- sum(!is.na(clinical_scores$clinical_relevance_score))
     cat(sprintf("   Completed LLM assessment: %d/%d SNPs successfully analyzed\n",
                 successful_assessments, nrow(clinical_scores)))
   }
-  
+
   return(clinical_scores)
 }
 
@@ -3038,7 +3091,10 @@ prioritizeSNPs <- function(snp_df,
 
 # Helper function: Combine prioritization scores
 .combine_prioritization_scores <- function(all_scores, methods, snp_df) {
-  
+
+  if(is.null(snp_df$.snp_key)) snp_df$.snp_key <- seq_len(nrow(snp_df))
+  if(is.null(all_scores$.snp_key)) all_scores$.snp_key <- seq_len(nrow(all_scores))
+
   # Define method weights (can be adjusted based on validation)
   method_weights <- list(
     fc_consistency = 0.4,
@@ -3078,13 +3134,33 @@ prioritizeSNPs <- function(snp_df,
   if(total_weight > 0) {
     combined_score <- combined_score / total_weight
   }
-  
-  # Merge with original SNP data
-  final_results <- merge(all_scores, snp_df, by = c("rs_id", "gene_name"), all.x = TRUE)
+
+  # Attach the original SNP columns without reordering.
+  #
+  # This previously used merge(all_scores, snp_df, by = c("rs_id","gene_name")),
+  # then assigned combined_score - computed in all_scores order - onto the
+  # merged frame. merge() sorts its output by the `by` columns, so every SNP
+  # received a different SNP's priority score whenever snp_df was not already
+  # sorted by rs_id (i.e. essentially always, since DE output is ranked by
+  # p-value). The same merge also duplicated rows when an rs_id/gene_name pair
+  # repeated, causing a hard "replacement has N rows, data has M" error.
+  #
+  # all_scores is built row-for-row from snp_df and every method realigns onto
+  # .snp_key, so the two frames are already in the same order; a positional
+  # join on .snp_key is both correct and cheaper.
+  extra_cols <- setdiff(colnames(snp_df), colnames(all_scores))
+  final_results <- all_scores
+  if(length(extra_cols) > 0) {
+    idx <- match(all_scores$.snp_key, snp_df$.snp_key)
+    final_results <- cbind(all_scores, snp_df[idx, extra_cols, drop = FALSE])
+    rownames(final_results) <- NULL
+  }
+
   final_results$combined_priority_score <- combined_score
-  final_results$method_weights <- list(method_weights)
-  
-  return(final_results)
+
+  stopifnot(nrow(final_results) == nrow(all_scores))
+
+  return(list(results = final_results, method_weights = method_weights))
 }
 
 # Helper function: Generate prioritization summary

@@ -35,6 +35,7 @@ Imports:
     methods,
     utils
 Suggests:
+    ellmer,
     Seurat,
     SingleCellExperiment,
     AnnotationHub,

@@ -300,6 +300,139 @@ The prioritization function integrates seamlessly with the existing variantCell 
 
 The function and all helper functions are located in `R/04-DE-SNP.R` (lines 1977-3113), making it part of the core SNP analysis module. The implementation includes comprehensive error handling, progress reporting, and fallback mechanisms to ensure reliable operation across different computational environments.
 
+## Critical Fixes to prioritizeSNPs (08/06/26)
+
+Four defects were found and fixed in `prioritizeSNPs()`. Three of them produced
+silently wrong results rather than errors, so **any prioritization output
+generated before this date should be regarded as invalid and re-run.**
+
+### 1. Scores were attached to the wrong SNPs
+
+`.combine_prioritization_scores()` computed `combined_score` in `all_scores` row
+order, then assigned it onto the output of
+`merge(all_scores, snp_df, by = c("rs_id","gene_name"))`. `merge()` sorts its
+result by the `by` columns, so unless `snp_df` arrived already sorted by rs_id —
+essentially never, since DE output is ranked by p-value — every SNP received a
+different SNP's priority score. On a 5-SNP test case 4 of 5 rows were wrong and
+the function named the wrong top SNP.
+
+Fixed by realigning every method onto `.snp_key`, a stable per-row identifier,
+and joining positionally instead of via `merge()`.
+
+### 2. Hard crash on duplicated rs_id/gene pairs
+
+The same `merge()` expanded the row count whenever an rs_id/gene_name pair
+repeated (a SNP mapping to two transcripts, or two comparison rows), producing
+`replacement has N rows, data has M`. `.compute_fc_consistency_scores()` had the
+same latent expansion against `gex_fc_df`.
+
+### 3. Unannotated SNPs collapsed onto a single score
+
+Scores were realigned with `match(all_scores$rs_id, ...)`. `match()` treats `NA`
+as a matchable value, so every SNP lacking a dbSNP annotation matched the *first*
+NA row and inherited its score. Given how much of a cellSNP callset has no rs
+ID, this affected a large fraction of rows. `.snp_key` removes the dependence on
+rs_id entirely.
+
+### 4. The package hijacked the caller's RNG
+
+`set.seed(42)` inside `.compute_ml_prioritization()` reset the **global** random
+stream as a side effect, silently changing the results of anything run afterwards
+in the same session (Seurat UMAP, clustering, `downsampleVariant()`). The
+accompanying `rnorm(n, 0, 0.02)` "tie-breaking" jitter also perturbed genuinely
+different scores, not just ties, so it was removed rather than localised —
+`order()` already breaks ties deterministically by row position.
+`.select_top_snps_for_llm()` also called `runif()`, which both selected SNPs for
+paid LLM assessment at random and consumed the caller's RNG.
+
+### Also changed
+
+- `llm_clinical` is **no longer in the default `method=`**. It issued billable
+  external API calls on a plain `prioritizeSNPs(snp_df, gex_fc_df)` call. It is
+  now opt-in, with `match.arg()` validation of the method vector.
+- `method_weights` is returned properly instead of smuggled through a
+  data-frame column.
+- `ellmer` added to `Suggests` (it was called via `::` but undeclared).
+
+A regression test covering all four defects is in
+`History/2026-08-06_prioritizeSNPs-regression.R`.
+
+## New Feature - Donor/Recipient Inference (08/06/26)
+
+### Function Added: `inferDonorType()` (`R/07-donor-inference.R`)
+
+Infers which Vireo genotype cluster is the transplanted organ by comparing the
+**structural-cell fraction** (Epithelial + Endothelial + Stromal) between
+clusters. The graft supplies structural tissue; the recipient supplies
+infiltrating immune cells.
+
+```r
+inf <- inferDonorType(merged_obj, vireo_dir = "Vireo/cellranger8")
+inf$mapping        # per-sample audit: fractions, counts, margin, call
+inf$donor_types    # ready for addSampleData(donor_type = ...)
+inf$object         # input object + donor_type / vireo_donor columns
+```
+
+**Validated 22/22** against an independently established mapping on the lung
+transplant cohort. On the CellRanger 8 run it called 32/32 samples with 0
+ambiguous (min margin 0.500, median 0.939); Donor cells were 91% structural and
+Recipient cells 99% immune.
+
+### Why this function exists
+
+**Vireo's `donor0`/`donor1` labels are arbitrary and assigned independently on
+every run.** They are not stable across re-processing. Re-running this cohort
+under CellRanger 8 swapped the labels on **16 of 22** previously-mapped samples —
+CLAD1 went from `donor0=2358/donor1=4020` to `donor0=4387/donor1=2477`, the same
+two populations with opposite labels.
+
+A donor/recipient mapping recorded against one Vireo run must **never** be reused
+against another; doing so silently inverts Donor and Recipient with no error.
+Always re-infer. Samples below `min_margin` are reported `"ambiguous"` and left
+`NA` rather than guessed, because the separation is normally near-binary
+(0.00 vs 0.99) — a low margin means something is wrong, not merely uncertain.
+
+## Analysis Caveat - 3′/5′ Chemistry Confound
+
+10X chemistry is nested inside disease Stage in the lung cohort: **CLAD is 100%
+3′ and NoALAD/ALI/OP/ALAD\* are 100% 5′**. Only ACR is balanced (3 vs 3).
+
+This matters because the two chemistries interrogate different variant space —
+3′ reads the last few hundred bp of a transcript, 5′ reads the TSS end:
+
+| sample | chemistry | SNPs |
+|---|---|---|
+| CLAD1 | 3v3 | 217,970 |
+| TBX42 | 5v2 | 62,423 |
+| TBX79 | 5v3 | 380,482 |
+
+`CLAD1 ∩ TBX79 = 111,187` — only 51% of CLAD1 and 29% of TBX79. Two 5′ samples by
+contrast are nested (`TBX42 ∩ TBX79` = 97% of TBX42).
+
+`findSNPsByGroup()` does **not** yield false positives from this: it requires
+`dp >= min_depth` on both the present and the absent side, so uncovered SNPs are
+dropped rather than miscalled as absent. The cost is power loss and selection
+bias — cross-chemistry contrasts silently test only the intersection, biased
+toward short/highly-expressed transcripts, and the eligible-SNP denominator is
+not currently surfaced.
+
+Note also that group `dp` is `Matrix::rowSums` across samples, so
+`min_depth = 10` summed over 11 samples is a weak per-sample guarantee. Use
+`findSNPsByGroup_SampleStratified` for anything cross-chemistry, and lead with
+ACR for headline results.
+
+## Documentation Build - IMPORTANT
+
+**Do not run `devtools::document()` unless roxygen2 is pinned to 7.x.**
+
+This package documents its R6 methods with roxygen blocks preceding
+`variantCell$set("public", "method", ...)` calls. roxygen2 7.3.2 renders those;
+**roxygen2 8.0.0 does not, and silently deletes them** — a single `roxygenize()`
+removed 15 `man/*.Rd` files covering most of the public API, and rewrote
+DESCRIPTION. Recovery is `git checkout -- man/` plus restoring
+`RoxygenNote: 7.3.2`. Fixing the R6 doc blocks for roxygen 8 is separate,
+unstarted work.
+
 ## File Structure
 
 ```
@@ -311,7 +444,9 @@ variantCell/
 │   ├── 03-snp-database.R       # Core database management
 │   ├── 04-DE-SNP.R            # SNP analysis functions
 │   ├── 05-plots.R             # Visualization functions
-│   └── 06-utils.R             # Utility functions
+│   ├── 06-utils.R             # Utility functions
+│   └── 07-donor-inference.R   # Donor/Recipient inference from Vireo + composition
+├── History/                    # gitignored - interactive session logs
 ├── vignettes/
 │   ├── build_snp_database.Rmd # Database building tutorial
 │   ├── donor_recipient.Rmd    # Donor/recipient identification
@@ -322,12 +457,25 @@ variantCell/
 
 ## Usage Workflow
 
-1. **Initialize Project**: `project <- variantCell$new()`
-2. **Add Samples**: Use `addSampleData()` for each sample with cellSNP and vireo data
-3. **Build Database**: `buildSNPDatabase()` to create unified SNP database
-4. **Set Identity**: `setProjectIdentity()` to define cell groupings
-5. **Analyze**: Use `findDESNPs()` or `findSNPsByGroup()` for SNP analysis
-6. **Visualize**: Create plots with `plotSNPs()` or `plotSNPHeatmap()`
+1. **Infer donor identity**: `inferDonorType()` on the merged object — re-run this
+   for every new Vireo run, never reuse a stored mapping
+2. **Initialize Project**: `project <- variantCell$new()`
+3. **Add Samples**: Use `addSampleData()` for each sample with cellSNP and vireo
+   data, passing `donor_type = inf$donor_types[[sample]]`
+4. **Build Database**: `buildSNPDatabase()` to create unified SNP database
+5. **Set Identity**: `setProjectIdentity()` to define cell groupings
+6. **Analyze**: Use `findDESNPs()` or `findSNPsByGroup()` for SNP analysis
+7. **Visualize**: Create plots with `plotSNPs()` or `plotSNPHeatmap()`
+8. **Prioritize**: `prioritizeSNPs()` to rank variants
+
+### Note on `addSampleData(data_type = "dataframe")`
+
+It requires `rownames(metadata_df) == prefix_text + barcode`, and `vireo_path`
+points at the `donor_ids.tsv` **file**, not its directory. Derive `prefix_text`
+by stripping the barcode off the existing cell name
+(`substr(cn, 1, nchar(cn) - nchar(barcode))`) rather than rebuilding it from
+metadata columns — cell names in a merged object are baked at merge time and can
+carry stale labels that no longer match the current metadata.
 
 ## Key Features
 
