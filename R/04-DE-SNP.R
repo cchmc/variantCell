@@ -1297,12 +1297,17 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
       stop("No other groups available for comparison")
     }
     
-    # Combine all other groups
-    group1_ad <- ad_matrix[, ident.1, drop=FALSE]
-    group1_dp <- dp_matrix[, ident.1, drop=FALSE]
-    
-    group2_ad <- Matrix::rowSums(ad_matrix[, other_groups, drop=FALSE])
-    group2_dp <- Matrix::rowSums(dp_matrix[, other_groups, drop=FALSE])
+    # Combine all other groups.
+    # These must be plain numeric vectors, not 1-column Matrix objects: with
+    # drop = FALSE the comparisons below yield a Matrix, and which() then fails
+    # with "argument to 'which' is not logical". That made every call returning
+    # actual hits an error, while the empty case slipped through because any()
+    # accepts a Matrix.
+    group1_ad <- as.numeric(ad_matrix[, ident.1])
+    group1_dp <- as.numeric(dp_matrix[, ident.1])
+
+    group2_ad <- as.numeric(Matrix::rowSums(ad_matrix[, other_groups, drop=FALSE]))
+    group2_dp <- as.numeric(Matrix::rowSums(dp_matrix[, other_groups, drop=FALSE]))
     
     comparison_label <- paste(ident.1, "vs", "All_Others")
     
@@ -1312,12 +1317,13 @@ variantCell$set("public", "findSNPsByGroup_GroupOnly", function(ident.1,
       stop(sprintf("Group '%s' not found in aggregated data", ident.2))
     }
     
-    group1_ad <- ad_matrix[, ident.1, drop=FALSE]
-    group1_dp <- dp_matrix[, ident.1, drop=FALSE]
-    
-    group2_ad <- ad_matrix[, ident.2, drop=FALSE]
-    group2_dp <- dp_matrix[, ident.2, drop=FALSE]
-    
+    # Plain numeric vectors, for the reason given in the branch above.
+    group1_ad <- as.numeric(ad_matrix[, ident.1])
+    group1_dp <- as.numeric(dp_matrix[, ident.1])
+
+    group2_ad <- as.numeric(ad_matrix[, ident.2])
+    group2_dp <- as.numeric(dp_matrix[, ident.2])
+
     comparison_label <- paste(ident.1, "vs", ident.2)
   }
   
