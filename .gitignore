@@ -10,3 +10,6 @@ History/
 # Claude Code scratch
 claude/
 .claude/settings.local.json
+
+# built artifacts (large, regenerable)
+output/
