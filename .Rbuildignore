@@ -1,3 +1,7 @@
+^History$
+^enhanced_snp_ranking\.R$
+^simple_snp_ranking\.R$
+^plotSNPHeatmap_improved\.R$
 ^variantCell\.Rproj$
 ^\.Rproj\.user$
 ^\.github$
