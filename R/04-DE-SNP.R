@@ -1605,9 +1605,20 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
   n_samples_group1 <- length(samples_group1)
   n_samples_group2 <- length(samples_group2)
   
-  # Enhanced sample requirement calculation
+  # Enhanced sample requirement calculation.
+  #
+  # The result must be capped at the number of samples actually in the group.
+  # Without the cap a group holding fewer samples than min_abs demands more
+  # supporting samples than exist, so no SNP can ever satisfy it and the whole
+  # comparison silently returns NULL with no indication that the criterion was
+  # unsatisfiable rather than unsatisfied. A one-biopsy group -- Donor vs
+  # Recipient within a sample, or a paired within-patient contrast -- hit this
+  # every time.
+  #
+  # Capping only affects groups smaller than min_abs, where the previous
+  # behaviour was to return nothing at all. Larger groups are unchanged.
   calculate_min_samples <- function(n_samples, min_pct, min_abs) {
-    max(min_abs, ceiling(n_samples * min_pct))
+    min(max(min_abs, ceiling(n_samples * min_pct)), n_samples)
   }
   
   # Set default values for parameters not in function signature
@@ -1624,9 +1635,23 @@ variantCell$set("public", "findSNPsByGroup_SampleStratified", function(ident.1,
   cat(sprintf("\nComparing SNP presence between groups:"))
   cat(sprintf("\n%s: %d samples, need %d samples (%.0f%% or min %d)", 
               ident.1, n_samples_group1, min_samples_group1, min_pct_samples * 100, min_abs_samples))
-  cat(sprintf("\n%s: %d samples, need %d samples (%.0f%% or min %d)", 
+  cat(sprintf("\n%s: %d samples, need %d samples (%.0f%% or min %d)",
               group2_name, n_samples_group2, min_samples_group2, min_pct_samples * 100, min_abs_samples))
   cat(sprintf("\nStatistical testing: %s", if(calc_p_values) "enabled" else "disabled"))
+
+  # Flag groups too small for the cross-sample consistency this mode exists to
+  # provide. The comparison still runs, but for those groups a "consistent"
+  # result rests on a single sample and carries no replication.
+  undersized <- c(ident.1, group2_name)[c(n_samples_group1, n_samples_group2) < min_abs_samples]
+  if(length(undersized) > 0) {
+    warning(sprintf(paste0("Group(s) %s have fewer than %d samples, so the sample-consistency ",
+                           "requirement was capped at the number available. Results for these ",
+                           "groups are not replicated across samples; consider ",
+                           "findSNPsByGroup_GroupOnly() instead."),
+                    paste(undersized, collapse = ", "), min_abs_samples), call. = FALSE)
+    cat(sprintf("\nNOTE: %s below %d samples - consistency requirement capped, no replication",
+                paste(undersized, collapse = ", "), min_abs_samples))
+  }
   
   # Get sample-level indices
   sample_indices_group1 <- which(colnames(sample_level_ad) %in% samples_group1)
