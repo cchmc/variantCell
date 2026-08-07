@@ -1,0 +1,77 @@
+# Building the SNP database
+
+## Creating a new variantCell project
+
+If you haven’t already done so, you can create a new project by using
+the command:
+
+``` r
+
+#Create new variantCell object
+project <- variantCell$new()
+```
+
+to initialize the project.
+
+## Building the SNP database
+
+To build the SNP database, first you need to add each sample
+individually, optionally specifying donor and recipient (please see
+tutorial for identifying donor/recipient).
+
+``` r
+# add one sample to SNP database
+  addSampleData = function(
+    sample_id,
+    vireo_path          = NULL,
+    cellsnp_path,
+    cell_data,
+    data_type           = "seurat",
+    prefix_text,
+    donor_type          = NULL,
+    non_transplant_mode = FALSE,
+    min_cells           = 0,
+    min_alt_frac        = 0,
+    normalize           = TRUE,
+    scale.factor        = 10000,
+    sample_metadata     = NULL
+  ) 
+```
+
+This is an example, setting donor and recipient (for transplant mode):
+
+``` r
+
+# usage example
+
+    project$addSampleData(
+      sample_id    = "Sample1",
+      vireo_path   = "/path/to/donor_ids.tsv",
+      cellsnp_path = "/path/to/cellSNP/dir/",
+      cell_data    = seuratObj,
+      data_type    = 'seurat',
+      prefix_text  = "Patient1_Sample1_",
+      normalize    = TRUE,
+      donor_type   = c(donor0 = "Donor", donor1 = "Recipient")
+    )
+```
+
+For initial analysis, it is recommended not to perform any filtering
+(min_cells=0, min_alt_frac=0) as this will help facilitate downstream DE
+analysis and plotting. If normalize is set to TRUE, size factor
+normalization is performed, using total DP (SNP counts) for each cell.
+Downstream analysis can then optionally use the normalized SNP counts.
+
+After the samples have been added, you can build a unified SNP database
+by executing the function:
+[`buildSNPDatabase()`](https://github.com/cchmc/variantCell/reference/buildSNPDatabase.md)
+
+#### Basic usage:
+
+`vCell_project$buildSNPDatabase()`
+
+#### With rs# identifier annotation:
+
+To include rs# identifiers from a reference VCF file (e.g., 1000
+Genomes), use: \`\`\`r vCell_project\$buildSNPDatabase( add_rs_ids =
+TRUE, VCF_file_path = “path/to/reference.vcf” )

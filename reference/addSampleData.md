@@ -1,0 +1,147 @@
+# Add a sample with SNP data to the variantCell project
+
+Processes and adds a single-cell sample to the variantCell project by
+integrating metadata, donor assignments from Vireo, and SNP data from
+CellSNP. This is the main function for adding samples to a variantCell
+project and supports different input data types and both transplant and
+non-transplant experimental designs.
+
+## Arguments
+
+- sample_id:
+
+  Character. Unique identifier for the sample.
+
+- vireo_path:
+
+  Character or NULL. Path to the Vireo donor_ids.tsv file. Required for
+  transplant mode, can be NULL for non-transplant mode.
+
+- cellsnp_path:
+
+  Character. Path to the directory containing CellSNP output files.
+
+- cell_data:
+
+  Object. Cell data in one of three forms: Seurat object,
+  SingleCellExperiment object, or a data frame with cell metadata (with
+  cell identifiers as row names).
+
+- data_type:
+
+  Character. Type of cell_data object: "seurat", "sce", or "dataframe".
+
+- prefix_text:
+
+  Character. Text to prepend to cell identifiers in the Vireo data to
+  match the cell barcodes in the input data.
+
+- donor_type:
+
+  Named character vector or NULL. Mapping between Vireo donor_id values
+  and biological roles, e.g. c(donor0 = "Donor", donor1 = "Recipient").
+  Required for transplant mode.
+
+- non_transplant_mode:
+
+  Logical. Whether this sample is from a non-transplant experiment
+  (TRUE) or a transplant experiment (FALSE).
+
+- min_cells:
+
+  Integer. Minimum number of cells with alternative allele required for
+  a SNP to be included in the filtered dataset.
+
+- min_alt_frac:
+
+  Numeric. Minimum alternative allele fraction required when counting
+  cells for the min_cells filter.
+
+- normalize:
+
+  Logical. Whether to calculate normalized SNP counts (TRUE) or not
+  (FALSE).
+
+- scale.factor:
+
+  Numeric. Scaling factor for normalization. Only used if
+  normalize=TRUE.
+
+- sample_metadata:
+
+  Data frame or NULL. Additional sample-level metadata.
+
+## Value
+
+Invisibly returns self (the variantCell object) with the sample added to
+the samples list.
+
+## Details
+
+This function performs several steps:
+
+1.  Processes the cell data and donor assignments based on data_type and
+    mode
+
+2.  Reads and processes the CellSNP data (SNP info and count matrices)
+
+3.  Matches cell barcodes between the data sources
+
+4.  Optionally normalizes the count data
+
+5.  Filters SNPs based on minimum criteria
+
+6.  Integrates metadata and stores the sample in the project
+
+The function supports two modes:
+
+- Transplant mode: Uses Vireo to assign cells to donors in
+  transplantation scenarios
+
+- Non-transplant mode: Treats all cells as coming from a single donor
+
+## Note
+
+- For transplant mode, vireo_path and donor_type parameters are required
+
+- For non-transplant mode, vireo_path can be NULL and donor_type
+  defaults to c(donor0 = "donor0")
+
+- The `normalize` parameter controls whether normalized expression
+  values are calculated, which is useful for expression-based analyses
+
+- The function expects specific file structure for CellSNP output: a
+  base VCF file, and AD/DP count matrices in Matrix Market format
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# Initialize a variantCell project
+project <- variantCell$new()
+
+# Example 1: Add a sample in transplant mode using a Seurat object
+project$addSampleData(
+  sample_id = "transplant_sample1",
+  vireo_path = "path/to/vireo/donor_ids.tsv",
+  cellsnp_path = "path/to/cellsnp/output/",
+  cell_data = seurat_object,
+  data_type = "seurat",
+  prefix_text = "Patient1_Sample1_",
+  donor_type = c(donor0 = "Donor", donor1 = "Recipient"),
+  normalize = TRUE
+)
+
+# Example 2: Add a sample in non-transplant mode using a metadata data frame
+project$addSampleData(
+  sample_id = "non_transplant_sample1",
+  vireo_path = NULL,
+  cellsnp_path = "path/to/cellsnp/output/",
+  cell_data = metadata_df,
+  data_type = "dataframe",
+  prefix_text = "Normal_Sample1_",
+  non_transplant_mode = TRUE,
+  normalize = TRUE
+)
+} # }
+```
