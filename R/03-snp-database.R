@@ -27,6 +27,12 @@
 #' @param normalize Logical. Whether to calculate normalized SNP counts (TRUE) or not (FALSE).
 #' @param scale.factor Numeric. Scaling factor for normalization. Only used if normalize=TRUE.
 #' @param sample_metadata Data frame or NULL. Additional sample-level metadata.
+#' @param max_nonzero_entries Numeric. Safety valve for pathologically dense samples: if the
+#'   DP matrix carries more non-zero entries than this, cells are randomly downsampled until
+#'   it does (SNP coverage is preserved in preference to cells). Alt-fraction calculation is
+#'   O(non-zero entries), so a sample at the default 1e8 needs on the order of a few GB;
+#'   raise it if you have the memory and would rather keep every cell. The draw is
+#'   reproducible and does not disturb the caller's random stream.
 #'
 #' @return Invisibly returns self (the variantCell object) with the sample added to the samples list.
 #'
@@ -93,7 +99,7 @@ variantCell$set("public", "addSampleData", function(sample_id,
                                                     normalize = TRUE,
                                                     scale.factor = 10000,
                                                     sample_metadata = NULL,
-                                                    max_nonzero_entries = 12000000) {
+                                                    max_nonzero_entries = 100000000) {
 
   # Input validation
   if(non_transplant_mode) {
@@ -277,7 +283,17 @@ variantCell$set("public", "addSampleData", function(sample_id,
     
     cat(sprintf("  Downsampling to approximately %d cells...\n", target_cells))
     
-    # Randomly sample cells to keep processing manageable
+    # Randomly sample cells to keep processing manageable.
+    # The draw is reproducible, but it must not disturb the caller's random
+    # stream: set.seed() here would silently re-seed the global RNG and change
+    # the results of anything run afterwards in the same session (Seurat UMAP,
+    # clustering, downsampleVariant()). Save and restore it around the draw.
+    if(exists(".Random.seed", envir = globalenv())) {
+      old_seed <- get(".Random.seed", envir = globalenv())
+      on.exit(assign(".Random.seed", old_seed, envir = globalenv()), add = TRUE)
+    } else {
+      on.exit(rm(".Random.seed", envir = globalenv()), add = TRUE)
+    }
     set.seed(42)  # For reproducibility
     keep_cells <- sample(n_cells, target_cells)
     keep_cells <- sort(keep_cells)  # Keep sorted for efficiency
@@ -305,9 +321,22 @@ variantCell$set("public", "addSampleData", function(sample_id,
   }
   
   cat("  Calculating alt fractions...\n")
-  alt_fractions <- Matrix::sparseMatrix(i = integer(0), j = integer(0),
-                                        dims = dim(dp_matched))
-  alt_fractions[valid_mask] <- ad_matched[valid_mask] / dp_matched[valid_mask]
+  # AD's non-zero entries are a subset of DP's (a cell can only carry alt reads
+  # where it has reads at all), so adding a zero-valued copy of DP promotes AD
+  # onto DP's exact sparsity pattern. The two @x slots then line up entry for
+  # entry and the division is a single vectorised pass - O(nnz), no dense
+  # intermediate.
+  #
+  # This replaces `alt[valid_mask] <- ad[valid_mask] / dp[valid_mask]`, which
+  # had two problems. It materialised several full-length index vectors and was
+  # the reason large samples exhausted memory; and because sparseMatrix() was
+  # called without an `x` argument it returned a *pattern* matrix (ngCMatrix),
+  # so the assignment coerced every fraction to TRUE. Alt fractions were stored
+  # as presence/absence, and any value in (0, 1) read back as 1.
+  ad_aligned <- ad_matched + 0 * dp_matched
+  stopifnot(length(ad_aligned@x) == length(dp_matched@x))
+  alt_fractions <- dp_matched
+  alt_fractions@x <- ad_aligned@x / dp_matched@x
   cat("  Alt fractions calculated.\n")
 
   # Step 3: Count cells passing threshold
@@ -600,23 +629,22 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
   cat("\nAnnotating SNPs...")
   snp_annotations <- self$annotate_snps(unique_snps)
   
-  # Initialize matrices
-  combined_ad <- Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0),
-                                      dims = c(nrow(unique_snps), total_cells),
-                                      dimnames = list(unique_snps$snp_id, cell_ids),
-                                      giveCsparse = TRUE)
-  combined_dp <- Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0),
-                                      dims = c(nrow(unique_snps), total_cells),
-                                      dimnames = list(unique_snps$snp_id, cell_ids),
-                                      giveCsparse = TRUE)
-  
-  combined_dp_norm <- if(has_normalized) {
-    Matrix::sparseMatrix(i = integer(0), j = integer(0), x = numeric(0),
-                         dims = c(nrow(unique_snps), total_cells),
-                         dimnames = list(unique_snps$snp_id, cell_ids),
-                         giveCsparse = TRUE)
-  } else NULL
-  
+  # The combined matrices are assembled from triplets in a single pass once every
+  # sample has been visited (see below). Building them incrementally with
+  # `combined[rows, cols] <- ...` is quadratic: each sparse sub-assignment
+  # rebuilds the whole structure, so the cost per sample grows with the number of
+  # non-zeros already inserted. On a 738k SNP x 215k cell database that took
+  # minutes for the first sample and would have taken hours for the cohort.
+  #
+  # Accumulate (i, j, x) per sample instead, and allocate once at the end.
+  tri_i    <- vector("list", length(self$samples))
+  tri_j    <- vector("list", length(self$samples))
+  tri_ad   <- vector("list", length(self$samples))
+  tri_dp   <- vector("list", length(self$samples))
+  tri_norm <- vector("list", length(self$samples))
+  combined_dims     <- c(nrow(unique_snps), total_cells)
+  combined_dimnames <- list(unique_snps$snp_id, cell_ids)
+
   # Create a list to store all metadata first
   metadata_list <- list()
   all_columns <- unique(unlist(lapply(self$samples, function(x) colnames(x$metadata))))
@@ -673,26 +701,70 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
     
     if(sum(valid_snps) > 0) {
       # Get column indices
-      col_idx <- match(sample$metadata$cell_id, colnames(combined_ad))
-      
+      col_idx <- match(sample$metadata$cell_id, cell_ids)
+
       if(any(is.na(col_idx))) {
         stop(sprintf("Some cell IDs from sample %s not found in combined matrix", sample_id))
       }
-      
-      # Update matrices
+
       tryCatch({
-        combined_ad[which(valid_snps), col_idx] <- sample$raw_metrics$ad_matrix[snp_map[valid_snps], ]
-        combined_dp[which(valid_snps), col_idx] <- sample$raw_metrics$dp_matrix[snp_map[valid_snps], ]
-        
-        if(!is.null(sample$normalized_counts)) {
-          combined_dp_norm[which(valid_snps), col_idx] <- sample$normalized_counts[snp_map[valid_snps], ]
+        row_idx <- which(valid_snps)          # rows of the combined matrix
+        src_row <- snp_map[valid_snps]        # corresponding rows of this sample
+
+        # DP defines the sparsity pattern: a cell can only carry alt reads where
+        # it has reads at all. Taking the triplets from DP and reading AD (and
+        # the normalized counts) at the same coordinates keeps all three matrices
+        # on one index set, so they are assembled from a single (i, j) pair list.
+        dp_sub <- sample$raw_metrics$dp_matrix[src_row, , drop = FALSE]
+        dpT    <- methods::as(dp_sub, "TsparseMatrix")
+        if(length(dpT@x) > 0) {
+          li <- dpT@i + 1L
+          lj <- dpT@j + 1L
+          ij <- cbind(li, lj)
+          tri_i[[sample_id]]  <- row_idx[li]
+          tri_j[[sample_id]]  <- col_idx[lj]
+          tri_dp[[sample_id]] <- dpT@x
+          tri_ad[[sample_id]] <- as.numeric(
+            sample$raw_metrics$ad_matrix[src_row, , drop = FALSE][ij])
+          if(has_normalized) {
+            # Must stay the same length as i/j even when this particular sample
+            # was not normalized, or every downstream triplet would shift.
+            tri_norm[[sample_id]] <- if(!is.null(sample$normalized_counts)) {
+              as.numeric(sample$normalized_counts[src_row, , drop = FALSE][ij])
+            } else {
+              numeric(length(dpT@x))
+            }
+          }
         }
       }, error = function(e) {
         stop(sprintf("Error updating matrices for sample %s: %s", sample_id, e$message))
       })
     }
   }
-  
+
+  # Allocate the combined matrices once, from the accumulated triplets.
+  # Samples occupy disjoint sets of columns (cell ids are prefixed per sample),
+  # so no (i, j) coordinate can repeat and sparseMatrix() has nothing to sum.
+  cat("\nAssembling combined matrices...")
+  I <- unlist(tri_i, use.names = FALSE)
+  J <- unlist(tri_j, use.names = FALSE)
+
+  combined_ad <- Matrix::sparseMatrix(
+    i = I, j = J, x = unlist(tri_ad, use.names = FALSE),
+    dims = combined_dims, dimnames = combined_dimnames)
+  combined_dp <- Matrix::sparseMatrix(
+    i = I, j = J, x = unlist(tri_dp, use.names = FALSE),
+    dims = combined_dims, dimnames = combined_dimnames)
+  combined_dp_norm <- if(has_normalized) {
+    Matrix::sparseMatrix(
+      i = I, j = J, x = unlist(tri_norm, use.names = FALSE),
+      dims = combined_dims, dimnames = combined_dimnames)
+  } else NULL
+
+  rm(tri_i, tri_j, tri_ad, tri_dp, tri_norm, I, J)
+  invisible(gc(verbose = FALSE))
+  cat(sprintf(" done (%d non-zero entries)", length(combined_dp@x)))
+
   # Calculate database-wide metrics
   cat("\nCalculating database-wide metrics...")
   db_metrics <- data.frame(
