@@ -164,6 +164,12 @@ variantCell$set("public",  "getCurrentIdentity",  function() {
 #'              if TRUE, keeps cells NOT matching the values.
 #' @param copy Logical. If TRUE (default), returns a new variantCell object with the subset;
 #'            if FALSE, modifies the current object in-place.
+#' @param drop_empty_snps Logical. If TRUE (default), SNPs left with no coverage in the
+#'            retained cells are removed, along with their rows in snp_info,
+#'            snp_annotations and snp_metrics. Subsets otherwise inherit the parent's full
+#'            SNP dimension - subsetting a 32-sample database to 2 samples keeps all
+#'            738,596 rows, ~81% of them empty, and every downstream call pays for them.
+#'            Set FALSE to keep the SNP dimension aligned with the parent object.
 #'
 #' @return
 #' If copy=TRUE: Returns a new variantCell object containing only the subset data.
@@ -210,7 +216,31 @@ variantCell$set("public",  "getCurrentIdentity",  function() {
 #'}
 #' @seealso
 #' \code{\link{aggregateByGroup}} for grouping cells after subsetting
-variantCell$set("public", "subsetVariantCell", function(column, values, invert = FALSE, copy = TRUE) {
+variantCell$set("public", "subsetVariantCell", function(column, values, invert = FALSE, copy = TRUE,
+                                                        drop_empty_snps = TRUE) {
+  # Drop SNP rows that have no coverage left after the cell filter, keeping every
+  # SNP-indexed table aligned. Without this a subset keeps the full SNP dimension
+  # of the parent database - subsetting 32 samples down to 2 still carried all
+  # 738,596 rows, ~81% of them empty, and every downstream call paid for them.
+  prune_snps <- function(db) {
+    keep <- Matrix::rowSums(db$dp_matrix) > 0
+    if(all(keep)) return(db)
+    db$ad_matrix <- db$ad_matrix[keep, , drop = FALSE]
+    db$dp_matrix <- db$dp_matrix[keep, , drop = FALSE]
+    if(!is.null(db$dp_matrix_normalized)) {
+      db$dp_matrix_normalized <- db$dp_matrix_normalized[keep, , drop = FALSE]
+    }
+    # These are all indexed by the same SNP order as the matrices; any one of
+    # them left unpruned would silently misalign every result.
+    for(tbl in c("snp_info", "snp_annotations", "snp_metrics")) {
+      if(!is.null(db[[tbl]]) && nrow(db[[tbl]]) == length(keep)) {
+        db[[tbl]] <- db[[tbl]][keep, , drop = FALSE]
+      }
+    }
+    attr(db, "n_snps_dropped") <- sum(!keep)
+    db
+  }
+
   # Make a deep copy if requested
   if(copy) {
     new_object <- self$clone(deep = TRUE)
@@ -248,6 +278,11 @@ variantCell$set("public", "subsetVariantCell", function(column, values, invert =
       }
     }
 
+    n_snps_before <- nrow(new_object$snp_database$dp_matrix)
+    if(drop_empty_snps) {
+      new_object$snp_database <- prune_snps(new_object$snp_database)
+    }
+
     # Print summary
     cat(sprintf("\nSubset summary (copied object):"))
     cat(sprintf("\nFiltered by %s %s values: %s",
@@ -256,6 +291,11 @@ variantCell$set("public", "subsetVariantCell", function(column, values, invert =
                 paste(values, collapse=", ")))
     cat(sprintf("\nCells before: %d", n_cells_before))
     cat(sprintf("\nCells after: %d", nrow(new_object$snp_database$cell_metadata)))
+    if(drop_empty_snps) {
+      cat(sprintf("\nSNPs: %d -> %d (dropped %d with no coverage)",
+                  n_snps_before, nrow(new_object$snp_database$dp_matrix),
+                  n_snps_before - nrow(new_object$snp_database$dp_matrix)))
+    }
     cat(sprintf("\nRemaining samples: %d", length(remaining_samples)))
 
     return(new_object)
@@ -293,6 +333,11 @@ variantCell$set("public", "subsetVariantCell", function(column, values, invert =
       }
     }
 
+    n_snps_before <- nrow(self$snp_database$dp_matrix)
+    if(drop_empty_snps) {
+      self$snp_database <- prune_snps(self$snp_database)
+    }
+
     # Print summary
     cat(sprintf("\nSubset summary (in-place):"))
     cat(sprintf("\nFiltered by %s %s values: %s",
@@ -301,6 +346,11 @@ variantCell$set("public", "subsetVariantCell", function(column, values, invert =
                 paste(values, collapse=", ")))
     cat(sprintf("\nCells before: %d", n_cells_before))
     cat(sprintf("\nCells after: %d", nrow(self$snp_database$cell_metadata)))
+    if(drop_empty_snps) {
+      cat(sprintf("\nSNPs: %d -> %d (dropped %d with no coverage)",
+                  n_snps_before, nrow(self$snp_database$dp_matrix),
+                  n_snps_before - nrow(self$snp_database$dp_matrix)))
+    }
     cat(sprintf("\nRemaining samples: %d", length(remaining_samples)))
 
     invisible(self)
