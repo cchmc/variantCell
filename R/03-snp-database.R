@@ -896,135 +896,221 @@ variantCell$set("public", "buildSNPDatabase", function(add_rs_ids = FALSE, VCF_f
 })
 
 # Add the internal VCF annotation matching helper function
-variantCell$set("private", "match_vcf_annotations_internal", function(unique_snps, VCF_file_path, add_rs_ids = FALSE, add_population_AF = FALSE) {
-  
-  require(data.table)
-  
-  # Create lookup using data.table for better performance
-  cat("Creating position lookup...\n")
-  project_positions <- unique(data.table(
-    CHROM = as.character(unique_snps$CHROM),
-    POS = as.integer(unique_snps$POS)
-  ))
-  
-  cat(sprintf("Looking for %d unique positions\n", nrow(project_positions)))
-  
-  # Read VCF file
-  cat("Reading VCF file...\n")
-  
-  if(grepl("\\.gz$", VCF_file_path)) {
-    con <- gzfile(VCF_file_path, "r")
+#' Read a reference VCF into a keyed, biallelic table
+#'
+#' Reads the first eight (fixed) columns of a VCF and returns one row per
+#' alternate allele, keyed on CHROM/POS/REF/ALT and carrying the ID and the
+#' global allele frequency.
+#'
+#' Written to replace an earlier implementation that read the whole file with
+#' `readLines()`, pasted it into a single string and re-parsed that with
+#' `fread(text=)` - three copies of the file in memory, which is not viable for
+#' a genome-wide panel (the 1000G AF>0.05 panel is 7.4M records / 350 MB).
+#'
+#' @param VCF_file_path Path to a VCF, optionally gzipped.
+#' @param need_af Whether to parse the AF field out of INFO.
+#' @return A `data.table` keyed on CHROM, POS, REF, ALT with columns `ID` and
+#'   `AF`. `ID` is `NA` where the VCF records ".".
+#' @keywords internal
+read_reference_vcf <- function(VCF_file_path, need_af = TRUE) {
+  if (!file.exists(VCF_file_path)) {
+    stop("VCF file not found: ", VCF_file_path, call. = FALSE)
+  }
+
+  # skip="#CHROM" seeks the header line, and select=1:8 takes only the fixed
+  # fields, so a VCF carrying FORMAT and per-sample genotype columns reads
+  # correctly instead of erroring on a hardcoded eight-name assignment.
+  vcf <- data.table::fread(VCF_file_path, skip = "#CHROM", sep = "\t",
+                           select = 1:8, showProgress = FALSE)
+  data.table::setnames(vcf, c("CHROM", "POS", "ID", "REF", "ALT",
+                              "QUAL", "FILTER", "INFO"))
+
+  vcf[, CHROM := sub("^chr", "", as.character(CHROM))]
+  vcf[, POS := as.integer(POS)]
+  vcf[, ID := ifelse(ID == "." | ID == "", NA_character_, as.character(ID))]
+
+  if (need_af) {
+    # Anchor on a field boundary.  An unanchored "AF=" also matches inside
+    # EAS_AF=, AF_ESP=, AF_afr= and friends, which silently returns some other
+    # population's frequency as the global one.  Prepending ";" lets a
+    # fixed-width lookbehind cover the first field too.
+    m <- regexpr("(?<=;)AF=[^;]+", paste0(";", vcf$INFO), perl = TRUE)
+    af_raw <- rep(NA_character_, nrow(vcf))
+    af_raw[m > 0] <- sub("^AF=", "", regmatches(paste0(";", vcf$INFO), m))
+    vcf[, AF_raw := af_raw]
   } else {
-    con <- file(VCF_file_path, "r")
+    vcf[, AF_raw := NA_character_]
   }
-  
-  # Read all lines
-  all_lines <- readLines(con)
-  close(con)
-  
-  # Remove header lines
-  data_lines <- all_lines[!startsWith(all_lines, "#")]
-  cat(sprintf("Found %d data lines in VCF\n", length(data_lines)))
-  
-  # Parse all VCF data at once using fread
-  cat("Parsing VCF data...\n")
-  vcf_data <- fread(text = paste(data_lines, collapse = "\n"))
-  colnames(vcf_data) <- c("CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO")
-  
-  # Ensure consistent data types
-  vcf_data$CHROM <- as.character(gsub("^chr", "", vcf_data$CHROM))
-  vcf_data$POS <- as.integer(vcf_data$POS)
-  
-  # Filter VCF to only positions of interest
-  cat("Filtering VCF to positions of interest...\n")
-  setkey(vcf_data, CHROM, POS)
-  setkey(project_positions, CHROM, POS)
-  
-  # Inner join to get only matching positions
-  matching_vcf <- vcf_data[project_positions, nomatch = 0]
-  
-  cat(sprintf("Found %d VCF records at target positions\n", nrow(matching_vcf)))
-  
-  if(nrow(matching_vcf) == 0) {
-    cat("No matching positions found!\n")
-    result <- list()
-    if(add_rs_ids) result$rs_id <- rep(NA_character_, nrow(unique_snps))
-    if(add_population_AF) result$population_AF <- rep(NA_real_, nrow(unique_snps))
-    return(result)
+  vcf[, INFO := NULL]
+
+  # Split multi-allelic records so ALT is a single allele, pairing each with its
+  # own AF.  Vectorised over the multi-allelic subset only; the earlier version
+  # looped over every matched record and grew a list one element at a time.
+  is_ma <- grepl(",", vcf$ALT, fixed = TRUE)
+  if (any(is_ma)) {
+    ma    <- vcf[is_ma]
+    alts  <- strsplit(ma$ALT, ",", fixed = TRUE)
+    afs   <- strsplit(ifelse(is.na(ma$AF_raw), "", ma$AF_raw), ",", fixed = TRUE)
+    n_alt <- lengths(alts)
+
+    expanded <- ma[rep(seq_len(nrow(ma)), n_alt)]
+    expanded[, ALT := unlist(alts, use.names = FALSE)]
+    expanded[, AF_raw := unlist(Map(function(a, k) {
+      out <- rep(NA_character_, k)
+      take <- seq_len(min(k, length(a)))
+      out[take] <- a[take]
+      out
+    }, afs, n_alt), use.names = FALSE)]
+
+    vcf <- data.table::rbindlist(list(vcf[!is_ma], expanded), use.names = TRUE)
   }
-  
-  # Handle multi-allelic sites
-  cat("Processing multi-allelic sites...\n")
-  
-  # For multi-allelic sites, we need to handle AF values properly
-  # AF field can contain comma-separated values for multiple alleles
-  expanded_records <- list()
-  
-  for(i in 1:nrow(matching_vcf)) {
-    record <- matching_vcf[i, ]
-    alt_alleles <- strsplit(record$ALT, ",")[[1]]
-    
-    # Extract AF values from INFO field if needed
-    af_values <- NA_real_
-    if(add_population_AF) {
-      info_field <- record$INFO
-      af_match <- regexpr("AF=([0-9.,e-]+)", info_field, perl = TRUE)
-      if(af_match > 0) {
-        af_str <- regmatches(info_field, af_match)
-        af_str <- sub("AF=", "", af_str)
-        af_values <- as.numeric(strsplit(af_str, ",")[[1]])
-      }
-    }
-    
-    # Create one record per alternate allele
-    for(j in 1:length(alt_alleles)) {
-      expanded_record <- record
-      expanded_record$ALT <- alt_alleles[j]
-      
-      # Assign the appropriate AF value for this allele
-      if(add_population_AF && !is.na(af_values[1])) {
-        expanded_record$population_AF <- if(j <= length(af_values)) af_values[j] else NA_real_
-      } else {
-        expanded_record$population_AF <- NA_real_
-      }
-      
-      expanded_records[[length(expanded_records) + 1]] <- expanded_record
-    }
-  }
-  
-  expanded_vcf <- rbindlist(expanded_records, fill = TRUE)
-  
-  # Create match keys for final matching
-  expanded_vcf$match_key <- paste(expanded_vcf$CHROM, expanded_vcf$POS, 
-                                  expanded_vcf$REF, expanded_vcf$ALT, sep = "_")
-  unique_snps$match_key <- paste(unique_snps$CHROM, unique_snps$POS, 
-                                 unique_snps$REF, unique_snps$ALT, sep = "_")
-  
-  # Final matching
-  cat("Performing final SNP matching...\n")
-  vcf_dt <- data.table(expanded_vcf)
-  project_dt <- data.table(unique_snps)
-  
-  setkey(vcf_dt, match_key)
-  setkey(project_dt, match_key)
-  
-  matched_data <- vcf_dt[project_dt, on = "match_key"]
-  
-  # Prepare results
+
+  vcf[, AF := suppressWarnings(as.numeric(AF_raw))]
+  vcf[, AF_raw := NULL]
+  data.table::setkeyv(vcf, c("CHROM", "POS", "REF", "ALT"))
+  vcf[]
+}
+
+
+#' Look up rs IDs and population allele frequencies for a set of variants
+#'
+#' @param sites A data frame with CHROM, POS, REF and ALT columns.
+#' @param VCF_file_path Reference VCF, e.g. the 1000G AF>0.05 panel that
+#'   cellsnp-lite and vireo ship with.
+#' @param add_rs_ids,add_population_AF Which annotations to return.
+#' @return A list with `rs_id` and/or `population_AF`, each a vector aligned
+#'   row-for-row with `sites`.
+#' @keywords internal
+lookup_vcf_annotations <- function(sites, VCF_file_path,
+                                   add_rs_ids = TRUE, add_population_AF = TRUE) {
+  vcf <- read_reference_vcf(VCF_file_path, need_af = add_population_AF)
+
+  q <- data.table::data.table(
+    CHROM = sub("^chr", "", as.character(sites$CHROM)),
+    POS   = as.integer(sites$POS),
+    REF   = as.character(sites$REF),
+    ALT   = as.character(sites$ALT))
+
+  # mult="first" keeps the result row-aligned with `q` even where the panel
+  # carries a duplicate record for the same CHROM/POS/REF/ALT.
+  hit <- vcf[q, on = c("CHROM", "POS", "REF", "ALT"), mult = "first"]
+
   result <- list()
-  
-  if(add_rs_ids) {
-    # Clean rs# identifiers
-    matched_data$rs_id <- ifelse(matched_data$ID == "." | is.na(matched_data$ID), NA, matched_data$ID)
-    result$rs_id <- matched_data$rs_id[match(unique_snps$match_key, matched_data$match_key)]
+  if (add_rs_ids)        result$rs_id         <- hit$ID
+  if (add_population_AF) result$population_AF <- hit$AF
+  result
+}
+
+
+#' Annotate an already-built SNP database with rs IDs and population AF
+#'
+#' `buildSNPDatabase()` can annotate during assembly, but only then - there was
+#' no way to add annotations to an existing database without repeating the whole
+#' build. This does it in place, on the object you already have.
+#'
+#' The three per-SNP tables (`snp_info`, `snp_metrics`, `snp_annotations`) are
+#' row-aligned by construction, and all three are updated together; leaving one
+#' behind would silently misalign every downstream lookup.
+#'
+#' @param snp_database The `snp_database` element of a variantCell project.
+#' @param VCF_file_path Reference VCF.
+#' @param add_rs_ids,add_population_AF Which annotations to add.
+#' @param overwrite Whether to replace existing non-missing annotations.
+#'   Defaults to FALSE, which fills only what is currently NA.
+#' @return The database, annotated.
+#' @export
+annotate_snp_database <- function(snp_database, VCF_file_path,
+                                  add_rs_ids = TRUE, add_population_AF = TRUE,
+                                  overwrite = FALSE) {
+  info <- snp_database$snp_info
+  if (is.null(info) || !all(c("CHROM", "POS", "REF", "ALT") %in% names(info))) {
+    stop("snp_database$snp_info must have CHROM, POS, REF and ALT", call. = FALSE)
   }
-  
-  if(add_population_AF) {
-    # Population AF is already extracted above
-    result$population_AF <- matched_data$population_AF[match(unique_snps$match_key, matched_data$match_key)]
+  n <- nrow(info)
+
+  if (!overwrite) {
+    have_rs <- add_rs_ids && !is.null(info$rs_id) && any(!is.na(info$rs_id))
+    have_af <- add_population_AF && !is.null(info$population_AF) &&
+               any(!is.na(info$population_AF))
+    if (have_rs || have_af) {
+      warning("Existing annotations found; keeping them. ",
+              "Use overwrite = TRUE to replace.", call. = FALSE)
+    }
   }
-  
-  return(result)
+
+  message(sprintf("Annotating %d variants from %s", n, basename(VCF_file_path)))
+  ann <- lookup_vcf_annotations(info, VCF_file_path, add_rs_ids, add_population_AF)
+
+  fill <- function(old, new) {
+    if (is.null(old) || overwrite) return(new)
+    ifelse(is.na(old), new, old)
+  }
+
+  tables <- c("snp_info", "snp_metrics", "snp_annotations")
+  for (tb in tables) {
+    if (is.null(snp_database[[tb]])) next
+    if (nrow(snp_database[[tb]]) != n) {
+      warning(sprintf("%s has %d rows, expected %d - not annotated", tb,
+                      nrow(snp_database[[tb]]), n), call. = FALSE)
+      next
+    }
+    if (add_rs_ids) {
+      snp_database[[tb]]$rs_id <- fill(snp_database[[tb]]$rs_id, ann$rs_id)
+    }
+    if (add_population_AF) {
+      snp_database[[tb]]$population_AF <-
+        fill(snp_database[[tb]]$population_AF, ann$population_AF)
+    }
+  }
+
+  if (add_rs_ids) {
+    message(sprintf("  rs IDs:        %d / %d (%.1f%%)",
+                    sum(!is.na(snp_database$snp_info$rs_id)), n,
+                    100 * mean(!is.na(snp_database$snp_info$rs_id))))
+  }
+  if (add_population_AF) {
+    af <- snp_database$snp_info$population_AF
+    message(sprintf("  population AF: %d / %d (%.1f%%), range %.4f - %.4f",
+                    sum(!is.na(af)), n, 100 * mean(!is.na(af)),
+                    min(af, na.rm = TRUE), max(af, na.rm = TRUE)))
+  }
+  snp_database
+}
+
+
+#' Add rs IDs and population allele frequencies to a built database
+#'
+#' @param VCF_file_path Reference VCF, e.g.
+#'   `genome1K.phase3.SNP_AF5e2.chr1toX.hg38.vcf`.
+#' @param add_rs_ids,add_population_AF Which annotations to add.
+#' @param overwrite Replace existing annotations rather than filling gaps.
+#' @return The project, invisibly, with `snp_database` annotated in place.
+#' @examples
+#' \dontrun{
+#' project$annotateSNPDatabase("genome1K.phase3.SNP_AF5e2.chr1toX.hg38.vcf")
+#' }
+variantCell$set("public", "annotateSNPDatabase", function(VCF_file_path,
+                                                          add_rs_ids = TRUE,
+                                                          add_population_AF = TRUE,
+                                                          overwrite = FALSE) {
+  if (is.null(self$snp_database)) {
+    stop("No SNP database. Run buildSNPDatabase() first.", call. = FALSE)
+  }
+  self$snp_database <- annotate_snp_database(
+    self$snp_database, VCF_file_path,
+    add_rs_ids = add_rs_ids, add_population_AF = add_population_AF,
+    overwrite = overwrite)
+  invisible(self)
+})
+
+
+# Internal matching helper used by buildSNPDatabase().  Now a thin wrapper over
+# the shared implementation, so the build path and annotateSNPDatabase() cannot
+# drift apart.
+variantCell$set("private", "match_vcf_annotations_internal", function(unique_snps, VCF_file_path, add_rs_ids = FALSE, add_population_AF = FALSE) {
+  lookup_vcf_annotations(unique_snps, VCF_file_path,
+                         add_rs_ids = add_rs_ids,
+                         add_population_AF = add_population_AF)
 })
 variantCell$set("public", "annotate_snps", function(snp_info,
                                                     chunk_size = 5000,
