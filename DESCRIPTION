@@ -36,9 +36,10 @@ Imports:
     utils
 Suggests:
     ellmer,
+    jsonlite,
+    SummarizedExperiment,
     Seurat,
     SingleCellExperiment,
-    AnnotationHub,
     dplyr,
     tidyr,
     patchwork,

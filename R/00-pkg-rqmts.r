@@ -31,7 +31,7 @@
 #' @importFrom Matrix Matrix rowSums colSums Diagonal sparseMatrix t nnzero readMM
 #' @importFrom matrixStats rowVars rowMeans2 rowSds colVars colMeans2
 #' @importFrom grid unit gpar
-#' @importFrom stats p.adjust wilcox.test t.test fisher.test chisq.test median sd
+#' @importFrom stats p.adjust wilcox.test t.test fisher.test chisq.test median sd var
 #' @importFrom utils head tail read.delim write.csv
 #' @importFrom grDevices colorRampPalette
 #' @importFrom methods is as new setGeneric setMethod
@@ -42,3 +42,8 @@
 #'
 #' @keywords internal
 "_PACKAGE"
+
+# data.table evaluates column names inside the frame, so R CMD check cannot see
+# where these are bound. Declaring them keeps the "no visible binding" NOTE from
+# masking a genuine typo in a future edit.
+utils::globalVariables(c("CHROM", "POS", "ID", "REF", "ALT", "INFO", "AF", "AF_raw"))

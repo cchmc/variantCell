@@ -427,7 +427,7 @@ variantCell$set("public",  "getNumericSubset", function(sparseMat, rows, cols) {
 #'                  If NULL, uses all cells regardless of donor type.
 #' @param use_normalized Logical. Whether to use normalized depth counts (TRUE) or raw counts (FALSE).
 #' @param min_expr_cells Integer. Minimum number of expressing cells required in each group.
-#' @param min_alt_frac Numeric [0-1]. Minimum alternative allele fraction to consider a cell as expressing.
+#' @param min_alt_frac Numeric, 0 to 1. Minimum alternative allele fraction to consider a cell as expressing.
 #' @param logfc.threshold Numeric. Minimum absolute log2 fold-change required to report a SNP.
 #' @param calc_p Logical. Whether to calculate p-values (Wilcoxon test). Set to FALSE to save computation time.
 #' @param p.adjust.method Character. Method for p-value adjustment, passed to p.adjust(). Default: "BH" (Benjamini-Hochberg).

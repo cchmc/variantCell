@@ -16,7 +16,7 @@ If NULL, uses all cells regardless of donor type.}
 
 \item{min_expr_cells}{Integer. Minimum number of expressing cells required in each group.}
 
-\item{min_alt_frac}{Numeric \link{0-1}. Minimum alternative allele fraction to consider a cell as expressing.}
+\item{min_alt_frac}{Numeric, 0 to 1. Minimum alternative allele fraction to consider a cell as expressing.}
 
 \item{logfc.threshold}{Numeric. Minimum absolute log2 fold-change required to report a SNP.}
 

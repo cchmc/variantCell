@@ -11,3 +11,5 @@
 ^claude$
 ^\.claude$
 ^output$
+^\.mcp\.json$
+^\.Rhistory$
