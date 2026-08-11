@@ -54,11 +54,22 @@ at the single-cell level, with support for parallel processing to improve perfor
 \details{
 The function calculates differential expression by comparing the average expression
 of SNPs between two groups, normalized by the total number of cells in each group.
-For each SNP, cells are only considered as expressing if they have a minimum
-alternative allele fraction (min_alt_frac) and positive read depth.
+A cell counts as expressing a SNP if it has positive read depth and an alternative
+allele fraction of at least min_alt_frac. Alternative allele fractions are always
+computed from raw AD/DP, never from normalized depth, regardless of use_normalized.
+
+min_alt_frac and min_expr_cells select which SNPs are testable; they do not
+restrict which cells contribute to the effect size. avg_expr_group1/2 and the
+Wilcoxon test are both computed over all cells in the group, so the reported
+log2fc and p-value describe the same population.
 
 Statistical testing is performed using Wilcoxon rank-sum test when calc_p=TRUE.
 Multiple testing correction is applied using the specified p.adjust.method.
+
+Note that this tests normalized read depth at the variant site, which is
+transcript abundance, not genotype. It is the coverage companion to
+findSNPsByGroup(): use it to confirm depth was adequate in the group where a
+SNP was called absent, rather than as a variant-discovery method.
 
 The parallel implementation distributes SNP processing across multiple CPU cores
 for significantly improved performance on large datasets.

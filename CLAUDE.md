@@ -357,6 +357,61 @@ paid LLM assessment at random and consumed the caller's RNG.
 A regression test covering all four defects is in
 `History/2026-08-06_prioritizeSNPs-regression.R`.
 
+## Critical Fixes to findDESNPs (08/11/26)
+
+Three defects, all active under the **default** `use_normalized = TRUE`.
+
+### 1. Alt fractions were divided by log-normalized depth
+
+`normalizeSnpCounts()` returns `log1p(DP * 10000 / colSums(DP))`, and there is
+**no normalized AD matrix** anywhere in the package. The per-SNP loop pulled DP
+from `dp_matrix_normalized` and AD from the raw `ad_matrix`, then computed
+`alt_frac <- ad/dp`. That is a raw count over a log-scaled depth, not a
+fraction — it reached **10.7** on the real 32-sample database.
+
+Because `dp_norm` sits around 2–4 while `ad` is a raw count, `>= min_alt_frac`
+was satisfied by almost any cell carrying a single alt read, so **`min_alt_frac`
+was effectively disabled**. The `mean_alt_frac1/2` output columns, which users
+read as allele fractions, were wrong by the same factor.
+
+Alt fractions and the expressing-cell gate are now always computed from raw
+AD/DP regardless of `use_normalized`.
+
+### 2. Effect size and p-value described different populations
+
+`log2fc` summed depth over gated cells only; `wilcox.test(dp1, dp2)` ran on all
+cells including zeros. `avg_expr1/2` now run over all cells in the group, so the
+two agree. `min_alt_frac`/`min_expr_cells` select which SNPs are *testable*, not
+which cells contribute to the effect size — the Seurat convention.
+
+### 3. A single qualifying SNP crashed the function
+
+`dp_matrix_subset[qualifying_snp_indices, all_group_indices]` dropped to a vector
+whenever exactly one SNP passed pre-filtering, and every downstream `[i,]` failed
+with `incorrect number of dimensions`. `drop = FALSE` added throughout.
+
+### Scope
+
+The SNP-level **pre-filter** used raw AD/DP and was correct, so SNP *selection*
+was never affected. `findSNPsByGroup_GroupOnly` and `_SampleStratified` use raw
+matrices throughout and are unaffected. `findDESNPs` appears in no analysis
+script in `History/`, so **no existing result is affected**.
+
+Also removed a per-SNP `gc()` inside the parallel worker loop.
+
+### Tests
+
+First `tests/` directory in the package: `tests/testthat/test-findDESNPs.R`,
+12 assertions across 5 tests including serial/parallel agreement.
+`testthat` was already declared in Suggests with edition 3.
+
+### What findDESNPs is actually for
+
+It tests **normalized read depth at a variant site**, which is transcript
+abundance, not genotype. Documented accordingly: it is the *coverage companion*
+to `findSNPsByGroup()` — use it to confirm depth was adequate in the group where
+a SNP was called absent, rather than as a variant-discovery method.
+
 ## New Feature - Donor/Recipient Inference (08/06/26)
 
 ### Function Added: `inferDonorType()` (`R/07-donor-inference.R`)

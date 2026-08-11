@@ -449,11 +449,22 @@ variantCell$set("public",  "getNumericSubset", function(sparseMat, rows, cols) {
 #' @details
 #' The function calculates differential expression by comparing the average expression
 #' of SNPs between two groups, normalized by the total number of cells in each group.
-#' For each SNP, cells are only considered as expressing if they have a minimum
-#' alternative allele fraction (min_alt_frac) and positive read depth.
+#' A cell counts as expressing a SNP if it has positive read depth and an alternative
+#' allele fraction of at least min_alt_frac. Alternative allele fractions are always
+#' computed from raw AD/DP, never from normalized depth, regardless of use_normalized.
+#'
+#' min_alt_frac and min_expr_cells select which SNPs are testable; they do not
+#' restrict which cells contribute to the effect size. avg_expr_group1/2 and the
+#' Wilcoxon test are both computed over all cells in the group, so the reported
+#' log2fc and p-value describe the same population.
 #'
 #' Statistical testing is performed using Wilcoxon rank-sum test when calc_p=TRUE.
 #' Multiple testing correction is applied using the specified p.adjust.method.
+#'
+#' Note that this tests normalized read depth at the variant site, which is
+#' transcript abundance, not genotype. It is the coverage companion to
+#' findSNPsByGroup(): use it to confirm depth was adequate in the group where a
+#' SNP was called absent, rather than as a variant-discovery method.
 #'
 #' The parallel implementation distributes SNP processing across multiple CPU cores
 #' for significantly improved performance on large datasets.
@@ -646,13 +657,21 @@ variantCell$set("public", "findDESNPs", function(ident.1,
   cat(sprintf("\nLoading optimized matrices for %d qualifying SNPs...", length(qualifying_snp_indices)))
   
   # Load matrices for qualifying SNPs
+  # drop = FALSE throughout: with a single qualifying SNP these subsets collapse
+  # to vectors and every downstream [i,] index fails.
   if(use_normalized) {
-    dp_matrix_subset <- self$snp_database$dp_matrix_normalized[qualifying_snp_indices, all_group_indices]
+    dp_matrix_subset <- self$snp_database$dp_matrix_normalized[qualifying_snp_indices, all_group_indices, drop = FALSE]
   } else {
-    dp_matrix_subset <- self$snp_database$dp_matrix[qualifying_snp_indices, all_group_indices]
+    dp_matrix_subset <- self$snp_database$dp_matrix[qualifying_snp_indices, all_group_indices, drop = FALSE]
   }
-  ad_matrix_subset <- self$snp_database$ad_matrix[qualifying_snp_indices, all_group_indices]
-  
+  ad_matrix_subset <- self$snp_database$ad_matrix[qualifying_snp_indices, all_group_indices, drop = FALSE]
+
+  # Raw depth is kept separately from dp_matrix_subset.  Alt fractions and the
+  # min_alt_frac gate must be computed on raw AD/DP: dp_matrix_normalized holds
+  # log1p(CP10K) values, so ad_raw / dp_normalized is not an allele fraction and
+  # can exceed 1 by an order of magnitude.  There is no normalized AD matrix.
+  dp_raw_matrix_subset <- self$snp_database$dp_matrix[qualifying_snp_indices, all_group_indices, drop = FALSE]
+
   # Update SNP info and annotations to match
   snp_info_subset <- self$snp_database$snp_info[qualifying_snp_indices, ]
   snp_annotations_subset <- self$snp_database$snp_annotations[qualifying_snp_indices, ]
@@ -662,10 +681,12 @@ variantCell$set("public", "findDESNPs", function(ident.1,
   group2_indices_subset <- match(group2_indices, all_group_indices)
   
   # Extract matrices for both groups from the subset
-  dp1_full <- dp_matrix_subset[, group1_indices_subset]
-  dp2_full <- dp_matrix_subset[, group2_indices_subset]
-  ad1_full <- ad_matrix_subset[, group1_indices_subset]
-  ad2_full <- ad_matrix_subset[, group2_indices_subset]
+  dp1_full <- dp_matrix_subset[, group1_indices_subset, drop = FALSE]
+  dp2_full <- dp_matrix_subset[, group2_indices_subset, drop = FALSE]
+  ad1_full <- ad_matrix_subset[, group1_indices_subset, drop = FALSE]
+  ad2_full <- ad_matrix_subset[, group2_indices_subset, drop = FALSE]
+  dpr1_full <- dp_raw_matrix_subset[, group1_indices_subset, drop = FALSE]
+  dpr2_full <- dp_raw_matrix_subset[, group2_indices_subset, drop = FALSE]
   
   # Get total SNPs (now using pre-filtered count)
   total_snps <- nrow(dp_matrix_subset)
@@ -755,20 +776,25 @@ variantCell$set("public", "findDESNPs", function(ident.1,
                                dp2 <- as.vector(dp2_full[i,])
                                ad1 <- as.vector(ad1_full[i,])
                                ad2 <- as.vector(ad2_full[i,])
-                               
-                               # Calculate alt fractions
-                               alt_frac1 <- ifelse(dp1 > 0, ad1/dp1, 0)
-                               alt_frac2 <- ifelse(dp2 > 0, ad2/dp2, 0)
-                               
+                               dpr1 <- as.vector(dpr1_full[i,])
+                               dpr2 <- as.vector(dpr2_full[i,])
+
+                               # Alt fractions come from RAW depth, never normalized depth
+                               alt_frac1 <- ifelse(dpr1 > 0, ad1/dpr1, 0)
+                               alt_frac2 <- ifelse(dpr2 > 0, ad2/dpr2, 0)
+
                                # Count expressing cells
-                               n_expr1 <- sum(dp1 > 0 & alt_frac1 >= min_alt_frac)
-                               n_expr2 <- sum(dp2 > 0 & alt_frac2 >= min_alt_frac)
-                               
+                               n_expr1 <- sum(dpr1 > 0 & alt_frac1 >= min_alt_frac)
+                               n_expr2 <- sum(dpr2 > 0 & alt_frac2 >= min_alt_frac)
+
                                if(n_expr1 >= min_expr_cells && n_expr2 >= min_expr_cells) {
-                                 # Calculate group averages (normalized by total cells in group)
-                                 avg_expr1 <- sum(dp1[dp1 > 0 & alt_frac1 >= min_alt_frac]) / n_cells_group1
-                                 avg_expr2 <- sum(dp2[dp2 > 0 & alt_frac2 >= min_alt_frac]) / n_cells_group2
-                                 
+                                 # Group means over ALL cells in the group, matching the
+                                 # population the Wilcoxon test below is run on.  The
+                                 # min_alt_frac gate selects which SNPs are testable, not
+                                 # which cells contribute to the effect size.
+                                 avg_expr1 <- sum(dp1) / n_cells_group1
+                                 avg_expr2 <- sum(dp2) / n_cells_group2
+
                                  # Calculate log2 fold change using normalized averages
                                  log2fc <- log2((avg_expr1 + pseudocount)/(avg_expr2 + pseudocount))
                                  
@@ -792,16 +818,15 @@ variantCell$set("public", "findDESNPs", function(ident.1,
                                      avg_expr2 = avg_expr2,
                                      n_expr1 = n_expr1,
                                      n_expr2 = n_expr2,
-                                     mean_alt_frac1 = mean(alt_frac1[dp1 > 0]),
-                                     mean_alt_frac2 = mean(alt_frac2[dp2 > 0]),
+                                     mean_alt_frac1 = if(any(dpr1 > 0)) mean(alt_frac1[dpr1 > 0]) else NA_real_,
+                                     mean_alt_frac2 = if(any(dpr2 > 0)) mean(alt_frac2[dpr2 > 0]) else NA_real_,
                                      pvalue = pvalue
                                    )
                                  }
                                }
-                               
+
                                # Clean up to reduce memory footprint
-                               rm(dp1, dp2, ad1, ad2, alt_frac1, alt_frac2)
-                               gc(verbose = FALSE, full = FALSE)
+                               rm(dp1, dp2, ad1, ad2, dpr1, dpr2, alt_frac1, alt_frac2)
                              }
                              return(chunk_results)
                            }, error = function(e) {
@@ -850,20 +875,23 @@ variantCell$set("public", "findDESNPs", function(ident.1,
         dp2 <- as.vector(dp2_full[i,])
         ad1 <- as.vector(ad1_full[i,])
         ad2 <- as.vector(ad2_full[i,])
-        
-        # Calculate alt fractions
-        alt_frac1 <- ifelse(dp1 > 0, ad1/dp1, 0)
-        alt_frac2 <- ifelse(dp2 > 0, ad2/dp2, 0)
-        
+        dpr1 <- as.vector(dpr1_full[i,])
+        dpr2 <- as.vector(dpr2_full[i,])
+
+        # Alt fractions come from RAW depth, never normalized depth
+        alt_frac1 <- ifelse(dpr1 > 0, ad1/dpr1, 0)
+        alt_frac2 <- ifelse(dpr2 > 0, ad2/dpr2, 0)
+
         # Count expressing cells
-        n_expr1 <- sum(dp1 > 0 & alt_frac1 >= min_alt_frac)
-        n_expr2 <- sum(dp2 > 0 & alt_frac2 >= min_alt_frac)
-        
+        n_expr1 <- sum(dpr1 > 0 & alt_frac1 >= min_alt_frac)
+        n_expr2 <- sum(dpr2 > 0 & alt_frac2 >= min_alt_frac)
+
         if(n_expr1 >= min_expr_cells && n_expr2 >= min_expr_cells) {
-          # Calculate group averages (normalized by total cells in group)
-          avg_expr1 <- sum(dp1[dp1 > 0 & alt_frac1 >= min_alt_frac]) / n_cells_group1
-          avg_expr2 <- sum(dp2[dp2 > 0 & alt_frac2 >= min_alt_frac]) / n_cells_group2
-          
+          # Group means over ALL cells in the group, matching the population the
+          # Wilcoxon test below is run on.
+          avg_expr1 <- sum(dp1) / n_cells_group1
+          avg_expr2 <- sum(dp2) / n_cells_group2
+
           # Calculate log2 fold change using normalized averages
           log2fc <- log2((avg_expr1 + pseudocount)/(avg_expr2 + pseudocount))
           
@@ -887,15 +915,15 @@ variantCell$set("public", "findDESNPs", function(ident.1,
               avg_expr2 = avg_expr2,
               n_expr1 = n_expr1,
               n_expr2 = n_expr2,
-              mean_alt_frac1 = mean(alt_frac1[dp1 > 0]),
-              mean_alt_frac2 = mean(alt_frac2[dp2 > 0]),
+              mean_alt_frac1 = if(any(dpr1 > 0)) mean(alt_frac1[dpr1 > 0]) else NA_real_,
+              mean_alt_frac2 = if(any(dpr2 > 0)) mean(alt_frac2[dpr2 > 0]) else NA_real_,
               pvalue = pvalue
             )
           }
         }
-        
+
         # Clean up to reduce memory footprint
-        rm(dp1, dp2, ad1, ad2, alt_frac1, alt_frac2)
+        rm(dp1, dp2, ad1, ad2, dpr1, dpr2, alt_frac1, alt_frac2)
       }
       
       # Force garbage collection between chunks to free memory
