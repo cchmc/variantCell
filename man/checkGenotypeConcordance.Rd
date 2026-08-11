@@ -54,8 +54,11 @@ different individuals. Default 0.80.}
 A list with \code{concordance} (between the two groups),
 \code{n_shared_sites}, \code{within1}/\code{within2} (minimum concordance
 among each group's own sub-pseudobulks, NA if not splittable),
-\code{verdict}, and \code{message}. \code{verdict} is one of
-\code{"different_genomes"}, \code{"same_genome"},
+\code{n_genomes1}/\code{n_genomes2} (distinct individuals per group, obtained
+by single-linkage clustering of sub-pseudobulks on concordance, so no patient
+column is needed), \code{min_attainable_p}, \code{bonferroni_threshold},
+\code{significance_reachable}, \code{verdict}, and \code{message}.
+\code{verdict} is one of \code{"different_genomes"}, \code{"same_genome"},
 \code{"heterogeneous_groups"}, or \code{"indeterminate"}.
 }
 \description{
@@ -76,10 +79,22 @@ ranked by total depth across the whole database and the best-covered
 supported.
 
 A \code{"heterogeneous_groups"} verdict means at least one group contains more
-than one individual. Presence/absence in that setting compares allele
-frequencies between two arbitrary sets of people; at small n essentially every
-hit is chance or ancestry, and increasing power makes it worse rather than
-better.
+than one individual. That is a legitimate design -- a case-control genetic
+association study -- but the evidence available is capped by the number of
+individuals, not by sequencing. For \code{n1} versus \code{n2} individuals the
+smallest attainable two-sided p for a perfectly separating variant is
+\code{2/choose(n1 + n2, n1)}, a permutation-count ceiling that no amount of
+depth, cell number or statistical refinement can beat. The function reports
+that ceiling against a Bonferroni threshold so it is clear up front whether any
+hit could reach significance; when it cannot, rank hits as exploratory
+candidates rather than thresholding them.
+
+Two caveats survive at any n. Unrelated individuals differ in ancestry, which
+shifts allele frequencies genome-wide independently of the grouping variable
+(association studies correct for this with ancestry principal components,
+which cannot be estimated at small n). And where the grouping variable is
+confounded with assay chemistry, the eligible-site denominator differs between
+the groups.
 
 Calibration on the 32-sample lung transplant cohort: concordance runs ~0.99
 between compartments of the same individual and ~0.61 between donor and

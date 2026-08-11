@@ -23,6 +23,37 @@
 
 #' @keywords internal
 #' @noRd
+#' Count distinct genomes among a set of sub-pseudobulks by single-linkage
+#' clustering on the concordance matrix. Derived from the data, so no patient
+#' column is required and mislabelled samples cannot inflate the count.
+.count_distinct_genomes <- function(conc, members, same_genome_threshold) {
+  if (length(members) == 0) return(NA_integer_)
+  if (length(members) == 1) return(1L)
+  m <- conc[members, members, drop = FALSE]
+  parent <- seq_along(members)
+  find <- function(i) { while (parent[i] != i) i <- parent[i]; i }
+  for (i in seq_along(members)) for (j in seq_along(members)) {
+    if (i < j && !is.na(m[i, j]) && m[i, j] >= same_genome_threshold) {
+      ri <- find(i); rj <- find(j)
+      if (ri != rj) parent[rj] <- ri
+    }
+  }
+  length(unique(vapply(seq_along(members), find, integer(1))))
+}
+
+#' @keywords internal
+#' @noRd
+#' Smallest attainable two-sided Fisher p for a perfectly separating variant
+#' between n1 and n2 independent individuals. This is a permutation-count
+#' ceiling: it depends only on group sizes, so no amount of sequencing depth,
+#' cell number or statistical refinement can beat it.
+.min_attainable_p <- function(n1, n2) {
+  if (is.na(n1) || is.na(n2) || n1 < 1 || n2 < 1) return(NA_real_)
+  min(1, 2 / choose(n1 + n2, n1))
+}
+
+#' @keywords internal
+#' @noRd
 .pairwise_concordance <- function(G, min_shared_sites) {
   n <- ncol(G)
   conc <- matrix(NA_real_, n, n, dimnames = list(colnames(G), colnames(G)))
@@ -183,6 +214,22 @@ checkGenotypeConcordance <- function(snp_database,
   w1 <- within_min("group1")
   w2 <- within_min("group2")
 
+  # Number of independent individuals per group, and the resulting ceiling on
+  # attainable evidence. A group that pools individuals is a legitimate genetic
+  # association design; what it cannot do is reach genome-wide significance at
+  # small n, so report the ceiling rather than discouraging the analysis.
+  subs <- function(tag) setdiff(grep(paste0("^", tag, "\\|"), levs, value = TRUE),
+                                c("group1", "group2"))
+  n_gen1 <- .count_distinct_genomes(pw$concordance, subs("group1"), same_genome_threshold)
+  n_gen2 <- .count_distinct_genomes(pw$concordance, subs("group2"), same_genome_threshold)
+  if (is.na(n_gen1)) n_gen1 <- 1L
+  if (is.na(n_gen2)) n_gen2 <- 1L
+
+  n_tested <- if (!is.null(info)) nrow(info) else NA_integer_
+  min_p <- .min_attainable_p(n_gen1, n_gen2)
+  bonf <- if (!is.na(n_tested)) 0.05 / n_tested else NA_real_
+  significance_reachable <- if (is.na(min_p) || is.na(bonf)) NA else min_p <= bonf
+
   het <- (!is.na(w1) && w1 < same_genome_threshold) ||
          (!is.na(w2) && w2 < same_genome_threshold)
 
@@ -206,12 +253,23 @@ checkGenotypeConcordance <- function(snp_database,
       "fixed within an individual, so any hit reflects transcript abundance ",
       "or coverage, not genotype. Test gene expression directly instead."),
     heterogeneous_groups = paste0(
-      "At least one group pools multiple genomes (minimum within-group ",
-      "concordance ", round(min(c(w1, w2), na.rm = TRUE), 3),
-      "). Presence/absence then compares allele frequencies between two sets ",
-      "of individuals; hits reflect who is in which group, not the grouping ",
-      "variable. Restrict the contrast to a single sample, or treat this as ",
-      "an association study and power it accordingly."),
+      "Groups pool multiple genomes (", n_gen1, " vs ", n_gen2,
+      " distinct individuals). This is a genetic association design, not a ",
+      "within-library genotype contrast, and it is valid as such -- but the ",
+      "evidence available is capped by group size, not by sequencing. The ",
+      "smallest attainable two-sided p for a perfectly separating variant is ",
+      signif(min_p, 3),
+      if (!is.na(bonf)) paste0(", against a Bonferroni threshold of ",
+                               signif(bonf, 3), " over ", n_tested, " sites") else "",
+      ". ",
+      if (isFALSE(significance_reachable))
+        paste0("No variant can reach genome-wide significance at this n, so ",
+               "rank hits as exploratory candidates rather than thresholding ",
+               "them, and let prior biological support drive follow-up. ")
+      else "",
+      "Note also that unrelated individuals differ in ancestry, which shifts ",
+      "allele frequencies genome-wide independently of the grouping variable; ",
+      "this test cannot separate the two."),
     different_genomes = paste0(
       "The two groups are distinct genomes (concordance ", round(between, 3),
       ") and each is internally consistent. Presence/absence is a valid ",
@@ -234,6 +292,15 @@ checkGenotypeConcordance <- function(snp_database,
                 ifelse(is.na(n_shared), "NA", n_shared)))
     cat(sprintf("  within group1 (min)   : %s\n", ifelse(is.na(w1), "NA (not splittable)", round(w1, 3))))
     cat(sprintf("  within group2 (min)   : %s\n", ifelse(is.na(w2), "NA (not splittable)", round(w2, 3))))
+    cat(sprintf("  distinct genomes      : %d vs %d\n", n_gen1, n_gen2))
+    if (n_gen1 > 1 || n_gen2 > 1) {
+      cat(sprintf("  best attainable p     : %s (perfect separation at this n)\n", signif(min_p, 3)))
+      if (!is.na(bonf)) {
+        cat(sprintf("  Bonferroni over %d : %s%s\n", n_tested, signif(bonf, 3),
+                    if (isFALSE(significance_reachable))
+                      sprintf("  -- unreachable, short by %.0fx", min_p / bonf) else ""))
+      }
+    }
     cat(sprintf("  verdict               : %s\n", verdict))
     cat(sprintf("  %s\n", msg))
   }
@@ -245,6 +312,11 @@ checkGenotypeConcordance <- function(snp_database,
        n_cells1 = length(i1),
        n_cells2 = length(i2),
        n_sites = length(keep),
+       n_genomes1 = n_gen1,
+       n_genomes2 = n_gen2,
+       min_attainable_p = min_p,
+       bonferroni_threshold = bonf,
+       significance_reachable = significance_reachable,
        verdict = verdict,
        message = msg,
        pairwise = pw$concordance)
@@ -294,11 +366,19 @@ variantCell$set("private", "genotype_contrast_guard", function(ident.1,
             "reflects transcript abundance or coverage. Test gene expression ",
             "directly, or compare different genomes.", call. = FALSE)
   } else if (res$verdict == "heterogeneous_groups") {
-    warning("At least one group pools multiple genomes (minimum within-group ",
-            "concordance ", round(min(c(res$within1, res$within2), na.rm = TRUE), 3),
-            "). Hits will reflect which individuals landed in which group ",
-            "rather than the grouping variable. Restrict the contrast to a ",
-            "single sample.", call. = FALSE)
+    warning("Contrast spans ", res$n_genomes1, " vs ", res$n_genomes2,
+            " distinct individuals, so this is a genetic association design ",
+            "rather than a within-library genotype contrast. Best attainable ",
+            "p at this n is ", signif(res$min_attainable_p, 3),
+            if (isFALSE(res$significance_reachable))
+              paste0(" against a Bonferroni threshold of ",
+                     signif(res$bonferroni_threshold, 3),
+                     "; no variant can reach significance, so rank hits as ",
+                     "exploratory candidates rather than thresholding them")
+            else "",
+            ". Ancestry differences between unrelated individuals also shift ",
+            "allele frequencies genome-wide and are not separable here.",
+            call. = FALSE)
   } else if (res$verdict == "indeterminate") {
     warning("Could not establish whether the two groups are distinct genomes. ",
             "Interpret presence/absence results with care.", call. = FALSE)

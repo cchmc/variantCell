@@ -137,6 +137,54 @@ test_that("input problems are rejected rather than silently mishandled", {
                "not found")
 })
 
+test_that("distinct genomes are counted from concordance, not from labels", {
+  # Two individuals in group1 under three sample labels: A appears twice, so
+  # the count must be 2, not 3. Label-counting would get this wrong.
+  db <- make_geno_db(list(A = A, B = B, C = C),
+                     data.frame(individual = c("A", "A", "B", "C"),
+                                sample_id  = c("S1", "S2", "S3", "S4"),
+                                group      = c("g1", "g1", "g1", "g2"),
+                                n_cells    = c(100, 100, 100, 100),
+                                stringsAsFactors = FALSE))
+  res <- checkGenotypeConcordance(db, which(db$cell_metadata$group == "g1"),
+                                  which(db$cell_metadata$group == "g2"),
+                                  verbose = FALSE)
+  expect_equal(res$n_genomes1, 2L)
+  expect_equal(res$n_genomes2, 1L)
+})
+
+test_that("the attainable-evidence ceiling is reported for pooled contrasts", {
+  db <- make_geno_db(list(A = A, B = B, C = C),
+                     data.frame(individual = c("A", "B", "C"),
+                                sample_id  = c("S1", "S2", "S3"),
+                                group      = c("g1", "g1", "g2"),
+                                n_cells    = c(100, 100, 100),
+                                stringsAsFactors = FALSE))
+  res <- checkGenotypeConcordance(db, which(db$cell_metadata$group == "g1"),
+                                  which(db$cell_metadata$group == "g2"),
+                                  verbose = FALSE)
+  # 2 vs 1 individuals: best two-sided p for perfect separation is 2/choose(3,2)
+  expect_equal(res$min_attainable_p, 2 / choose(3, 2))
+  expect_false(res$significance_reachable)
+  # The message must present this as an underpowered design, not an invalid one.
+  expect_match(res$message, "association design")
+  expect_match(res$message, "exploratory")
+  expect_false(grepl("structurally empty", res$message))
+})
+
+test_that("a clean two-genome contrast reports no ceiling and one genome a side", {
+  db <- make_geno_db(list(A = A, B = B),
+                     data.frame(individual = c("A", "B"), sample_id = c("S1", "S1"),
+                                group = c("g1", "g2"), n_cells = c(100, 100),
+                                stringsAsFactors = FALSE))
+  res <- checkGenotypeConcordance(db, which(db$cell_metadata$group == "g1"),
+                                  which(db$cell_metadata$group == "g2"),
+                                  verbose = FALSE)
+  expect_equal(res$n_genomes1, 1L)
+  expect_equal(res$n_genomes2, 1L)
+  expect_equal(res$verdict, "different_genomes")
+})
+
 test_that("cell ids and integer indices give the same answer", {
   db <- make_geno_db(list(A = A, B = B),
                      data.frame(individual = c("A", "B"), sample_id = c("S1", "S1"),

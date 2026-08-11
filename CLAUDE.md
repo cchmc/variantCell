@@ -446,6 +446,39 @@ genome against one recipient genome in one library. Neither existing mode
 enforces this — `_GroupOnly` pools across samples, and `_SampleStratified`
 requires consistency across unrelated pairs (`sample_consistency = 0.3`).
 
+### Cross-patient contrasts are valid but combinatorially capped
+
+A pooled contrast across patients (ACR patients vs CLAD patients) is **not
+invalid** — it is a case-control genetic association study, which is a real
+design. What it cannot do is reach significance at this n, and the reason is
+arithmetic rather than statistical:
+
+```
+ACR (5 patients) vs CLAD (4)
+  best attainable two-sided p, perfect separation : 0.0159   [= 2/C(9,5)]
+  Bonferroni over 738,596 sites                   : 6.77e-08
+  short by                                        : 234,000x
+```
+
+This is a **permutation-count ceiling**, the same failure that closed the
+Patient 7 time series: it depends only on group sizes, so no sequencing depth,
+cell count or better statistic can beat it. A perfectly separating variant needs
+~14 vs 14 patients merely to clear Bonferroni, and real association studies run
+to hundreds because effects are never perfectly separating.
+
+So the guard **reports the ceiling instead of discouraging the analysis**, and
+recommends ranking hits as exploratory candidates rather than thresholding them.
+Two caveats survive at any n and ranking does not fix them: unrelated
+individuals differ in **ancestry**, shifting allele frequencies genome-wide
+independently of the grouping variable (real GWAS corrects with ancestry PCs,
+unestimable at n=9); and here ACR is chemistry-mixed while CLAD is 100% 3′, so
+the eligible-site denominator differs between the arms.
+
+`n_genomes1`/`n_genomes2` are obtained by single-linkage clustering of
+sub-pseudobulks on concordance, **not** from a patient column — on the real
+ACR-vs-CLAD contrast this recovered 5 vs 4 with no metadata at all, which also
+means a mislabelled sample cannot inflate the count.
+
 ### Method
 
 Best-covered autosomal sites only (sex chromosomes excluded, so a sex
