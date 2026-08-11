@@ -26,6 +26,10 @@ other group for a SNP to be considered absent there.}
 \item{presence_score_weights}{Numeric vector of length 3. Weights for calculating presence scores
 in sample-stratified mode: c(fold_change, sample_consistency, depth_reliability).
 Default: c(0.4, 0.3, 0.3). Weights should sum to 1.0.}
+
+\item{check_genotype}{Logical. Whether to measure genotype concordance between
+the two groups before testing, and warn when the contrast is not a genotype
+contrast. Default TRUE. See \code{\link{checkGenotypeConcordance}}.}
 }
 \value{
 List containing:
@@ -33,6 +37,9 @@ List containing:
 gene annotation, depth metrics, allele frequencies, and presence classification.}
 \item{summary}{List with analysis overview including counts of SNPs present in each group
 and parameters used for filtering.}
+\item{genotype_check}{Result of the genotype concordance guard, when
+check_genotype = TRUE, so a flagged contrast stays recognisable as flagged when
+the object is read back later.}
 }
 \description{
 Identifies SNPs that are exclusively or predominantly present in one cell group compared to another.

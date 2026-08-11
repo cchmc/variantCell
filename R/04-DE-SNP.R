@@ -1158,10 +1158,19 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
                                                       return_all = TRUE,
                                                       include_rs_ids = TRUE,
                                                       include_population_AF = TRUE,
-                                                      presence_score_weights = c(0.4, 0.3, 0.3)) {  
+                                                      presence_score_weights = c(0.4, 0.3, 0.3),
+                                                      check_genotype = TRUE) {
   # Validate input data structure
   if(!all(c("ad", "dp", "metadata", "mode") %in% names(aggregated_data))) {
     stop("aggregated_data must contain 'ad', 'dp', 'metadata', and 'mode' elements from aggregateByGroup()")
+  }
+
+  # Presence/absence of a germline variant is a genotype test, so it is only
+  # informative when the two groups are different genomes. Nothing in the
+  # identity label says whether they are, so measure it before testing.
+  genotype_check <- NULL
+  if(check_genotype) {
+    genotype_check <- private$genotype_contrast_guard(ident.1, ident.2)
   }
   
   # Check if rs# IDs are available
@@ -1194,7 +1203,7 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
   # Detect aggregation mode and route to appropriate function
   if(aggregated_data$mode == "group_only") {
     cat("Detected group-only mode: analyzing entire group differences\n")
-    return(self$findSNPsByGroup_GroupOnly(
+    result <- self$findSNPsByGroup_GroupOnly(
       ident.1 = ident.1,
       ident.2 = ident.2,
       aggregated_data = aggregated_data,
@@ -1205,10 +1214,10 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
       include_rs_ids = include_rs_ids,
       include_population_AF = include_population_AF,
       presence_score_weights = presence_score_weights
-    ))
+    )
   } else if(aggregated_data$mode == "sample_stratified") {
     cat("Detected sample-stratified mode: analyzing samples within groups\n")
-    return(self$findSNPsByGroup_SampleStratified(
+    result <- self$findSNPsByGroup_SampleStratified(
       ident.1 = ident.1,
       ident.2 = ident.2,
       aggregated_data = aggregated_data,
@@ -1219,10 +1228,17 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
       include_rs_ids = include_rs_ids,
       include_population_AF = include_population_AF,
       presence_score_weights = presence_score_weights
-    ))
+    )
   } else {
     stop("Unknown aggregation mode. Please use aggregated data from the enhanced aggregateByGroup function.")
   }
+
+  # Travel the verdict with the results, so a contrast that was flagged at run
+  # time can still be recognised as flagged when the object is read back later.
+  if(!is.null(genotype_check) && is.list(result)) {
+    result$genotype_check <- genotype_check
+  }
+  result
 })
 
 

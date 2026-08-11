@@ -412,6 +412,57 @@ abundance, not genotype. Documented accordingly: it is the *coverage companion*
 to `findSNPsByGroup()` — use it to confirm depth was adequate in the group where
 a SNP was called absent, rather than as a variant-discovery method.
 
+## New Feature - Genotype Concordance Guard (08/11/26)
+
+### Function Added: `checkGenotypeConcordance()` (`R/08-genotype-qc.R`)
+
+Germline presence/absence is a **genotype test**. It is informative between
+different genomes, structurally empty within one genome, and confounded when a
+group pools several. Nothing in a cell-identity label says which situation the
+software is in, so this measures it from the data before any test runs.
+
+`findSNPsByGroup()` now calls it by default (`check_genotype = TRUE`), warns on
+the two bad verdicts, and returns the verdict as `$genotype_check` so a flagged
+contrast is still recognisable as flagged when the object is read back later.
+
+### Verdicts, calibrated on this cohort
+
+| contrast | concordance | within-group | verdict |
+|---|---|---|---|
+| TBX60 Donor vs Recipient (one library) | 0.611 | — | `different_genomes` |
+| TBX60 vs TBX66 Recipient (same patient) | 0.992 | — | `same_genome` |
+| all Donor vs all Recipient (pooled) | 0.723 | 0.52 / 0.54 | `heterogeneous_groups` |
+
+**The pooled row is the important one.** It is what
+`findSNPsByGroup_GroupOnly()` does when the identity is `donor_type`, and the
+within-group concordance (0.52) is **lower than the between-group value
+(0.723)** — the groups are less internally consistent than they are different
+from each other. A "Donor-specific" SNP found that way has to be present in
+every donor and absent in every recipient, which is an allele-frequency
+comparison between two arbitrary sets of unrelated people.
+
+**The only clean donor/recipient contrast is within a single sample**: one donor
+genome against one recipient genome in one library. Neither existing mode
+enforces this — `_GroupOnly` pools across samples, and `_SampleStratified`
+requires consistency across unrelated pairs (`sample_consistency = 0.3`).
+
+### Method
+
+Best-covered autosomal sites only (sex chromosomes excluded, so a sex
+difference cannot masquerade as genotype distance), pseudobulk alt fractions
+binned at 0.15/0.85 into 0/1/2, pairwise concordance over jointly callable
+sites. Each group is additionally split by `sample_id` into sub-pseudobulks, so
+within-group heterogeneity is measured in the same pass.
+
+The guard defaults to 10,000 sites rather than 30,000: verdicts and values are
+unchanged (0.612 / 0.990 / 0.718) at a third of the cost.
+
+Validated against `History/2026-08-10_genotype-identity.R`, which used the same
+method to establish 0.99-within / 0.63-between across all 64 sample x
+compartment pseudobulks. Tests in
+`tests/testthat/test-checkGenotypeConcordance.R` (16 assertions, deterministic
+fixtures, no RNG).
+
 ## New Feature - Donor/Recipient Inference (08/06/26)
 
 ### Function Added: `inferDonorType()` (`R/07-donor-inference.R`)
