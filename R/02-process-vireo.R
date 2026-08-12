@@ -38,7 +38,7 @@
 #' The function assumes that the file exists and is formatted as a proper TSV file.
 #' No validation is performed to check if the column specified by `prefix_column` exists
 #' in the TSV file.
-variantCell$set("public","process_tsv", function(file_path, prefix_column, prefix_text) {
+variantCell$set("private", "process_tsv", function(file_path, prefix_column, prefix_text) {
   # Read the TSV file
   df <- read.delim(file_path, sep="\t", stringsAsFactors=FALSE)
 
@@ -146,7 +146,7 @@ variantCell$set("public","process_vireo_seurat", function(seurat_obj, vireo_path
   print(table(Idents(seurat_obj)))
 
   # Process the vireo data using process_tsv helper function
-  donor_data <- self$process_tsv(vireo_path, "cell", prefix_text)
+  donor_data <- private$process_tsv(vireo_path, "cell", prefix_text)
 
   # Add metadata using debug_and_add_metadata helper function
   seurat_obj <- seurat_add_metadata(seurat_obj, donor_data)
@@ -239,7 +239,7 @@ variantCell$set("public","process_vireo_seurat", function(seurat_obj, vireo_path
 #' }
 variantCell$set("public",  "process_vireo_sce", function(sce_obj, vireo_path, prefix_text) {
   # Read the TSV file
-  donor_data <- self$process_tsv(vireo_path, "cell", prefix_text)
+  donor_data <- private$process_tsv(vireo_path, "cell", prefix_text)
 
   # Find matching cells between SCE and donor data
   matching_cells <- intersect(colnames(sce_obj), rownames(donor_data))
@@ -340,7 +340,7 @@ variantCell$set("public",  "process_vireo_sce", function(sce_obj, vireo_path, pr
 #' }
 variantCell$set("public",  "process_vireo_dataframe", function(metadata_df, vireo_path, prefix_text) {
   # Read the TSV file
-  donor_data <- self$process_tsv(vireo_path, "cell", prefix_text)
+  donor_data <- private$process_tsv(vireo_path, "cell", prefix_text)
 
   # Find matching cells between metadata and donor data
   matching_cells <- intersect(rownames(metadata_df), rownames(donor_data))

@@ -552,3 +552,13 @@ warnings. **Do not dismiss a clean pass with a warning tail.**
 `R CMD build` needs pandoc for the vignettes and it is not on the shell PATH.
 Prepend RStudio's bundled copy:
 `/usr/lib/rstudio/resources/app/bin/quarto/bin/tools/x86_64`
+
+## API Cleanup - Internals Made Private (08/12/26)
+
+Six methods were public without being API: `calculate_optimal_range`,
+`calculate_y_positions`, `create_main_plot`, `create_distribution_plots`
+(plotting internals), `process_tsv` (the Vireo TSV reader), and
+`getNumericSubset` — which had **no call sites anywhere**, dead public surface.
+
+All moved to `private`, call sites updated to `private$`, `man/process_tsv.Rd`
+removed. Public surface is now **25 members**, all deliberate.

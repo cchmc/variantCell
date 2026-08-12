@@ -408,7 +408,7 @@ variantCell$set("public", "aggregateByGroup", function(group_by,
 
 
 
-variantCell$set("public",  "getNumericSubset", function(sparseMat, rows, cols) {
+variantCell$set("private", "getNumericSubset", function(sparseMat, rows, cols) {
   # Matrix is already numeric (dgCMatrix), just need to subset and convert
   return(as.matrix(sparseMat[rows, cols]))
 })

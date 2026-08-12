@@ -455,7 +455,7 @@
             )
             
             # Calculate optimal range
-            range_info <- self$calculate_optimal_range(
+            range_info <- private$calculate_optimal_range(
               positions = plot_df$position,
               gene_start = gene_track_data$start,
               gene_end = gene_track_data$end,
@@ -463,7 +463,7 @@
             )
             
             # Calculate group spacing
-            y_positions <- self$calculate_y_positions(plot_df, split.by)
+            y_positions <- private$calculate_y_positions(plot_df, split.by)
             
             if(data_out) {
               # Create output data frame with specified columns
@@ -515,7 +515,7 @@
               return(output_df)
             }
             # Create main plot
-            p_main <- self$create_main_plot(
+            p_main <- private$create_main_plot(
               plot_df, gene_track_data, exon_track_data, range_info,
               y_positions, gene, gene_chr, color_scheme, point_size_range,
               flank_size = flank_size
@@ -523,7 +523,7 @@
             # Create distribution plots
             
             if(plot_density) {
-              p_dist <- self$create_distribution_plots(
+              p_dist <- private$create_distribution_plots(
                 plot_df, split.by, group.by)
               
               return(plot_grid(
@@ -538,7 +538,7 @@
               return(p_main)
             }
           })
-          variantCell$set("public",  "calculate_optimal_range", function(positions, gene_start, gene_end, min_padding = 1000) {
+          variantCell$set("private", "calculate_optimal_range", function(positions, gene_start, gene_end, min_padding = 1000) {
             # Get actual range of SNP positions
             snp_regions <- range(positions)
             
@@ -554,7 +554,7 @@
           })
           
           
-          variantCell$set("public",  "calculate_y_positions", function(plot_df, split.by) {
+          variantCell$set("private", "calculate_y_positions", function(plot_df, split.by) {
             if(!is.null(split.by)) {
               # Create position mapping for groups and their splits
               y_positions <- list()
@@ -612,7 +612,7 @@
               ))
             }
           })
-                   variantCell$set("public",  "create_main_plot", function(plot_df, gene_track_data, exon_track_data, range_info,
+                   variantCell$set("private", "create_main_plot", function(plot_df, gene_track_data, exon_track_data, range_info,
                                                y_positions, gene, gene_chr, color_scheme, point_size_range, flank_size) {
                      if(is.list(y_positions$positions)) {
                        plot_df$y_position <- sapply(1:nrow(plot_df), function(i) {
@@ -697,7 +697,7 @@
                      return(p)
                    })
 
-                   variantCell$set("public",  "create_distribution_plots", function(plot_df, split.by, group.by) {
+                   variantCell$set("private", "create_distribution_plots", function(plot_df, split.by, group.by) {
                      fill_var <- if(!is.null(split.by)) "split" else "group"
                      facet_var <- if(!is.null(split.by)) "group" else NULL
 
