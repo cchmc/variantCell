@@ -682,3 +682,59 @@ that has failed here failed on between-patient arithmetic. Donor vs recipient
 inside one library is paired, so patient, ancestry, chemistry and batch all
 cancel; cell-type contrasts likewise. Pass `within = "cell_type"` for the
 stratified form.
+
+## New Module - cellsnp-lite Import (08/12/26)
+
+### `R/10-import-cellsnp.R`
+
+`addSampleData()` + `buildSNPDatabase()` is the germline workflow: a cellSNP run
+paired with vireo donor assignments. A run against a **non-germline region
+list** — RNA editing sites, chrM, a candidate panel — has no vireo output,
+because there is no genotype to deconvolve. `buildCellSNPDatabase()` imports
+those runs directly.
+
+```r
+project <- variantCellFromCellSNP(
+  dirs = file.path("editing_pilot/run", samples), sample_ids = samples,
+  cell_metadata = seurat_meta, identity = "donor_type")
+idx <- project$computeAlleleFractionIndex(within = "cell_type")
+```
+
+Sites are **unioned** across samples, not intersected — different samples cover
+different subsets (436k vs 470k in the pilot). Matrices are assembled once from
+accumulated triplets; cbind-per-sample is quadratic and has bitten this package
+before.
+
+### OTH is carried through, and it matters
+
+At an A>G site the two remaining bases can only be sequencing error, so `OTH/DP`
+is an **internal, position-matched error floor** for the `AD/DP` signal. That
+comparison is what makes an editing result interpretable rather than a plausible
+artifact — on the pilot it gave 7.4x (TBX3) and 9.5x (CLAD-2). `qc_report`
+reports `alt_fraction`, `per_base_error_floor` and `signal_to_error`.
+
+### Two bugs found by chasing test warnings
+
+- **Leaked file connections.** `Matrix::readMM()` does not close a connection
+  handed to it. Three leaked per sample against R's ~128 connection cap would
+  hard-fail a large import long before the GC reclaimed them. Pinned by a
+  regression test.
+- **Pattern matrices.** `writeMM` emits a `pattern` header whenever every stored
+  value is 1, and `readMM` returns that as an `ngTMatrix` with **no `x` slot** —
+  reading `@x` errors out. An OTH matrix from a shallow run really can be all
+  ones. Same failure family as the pattern-matrix alt-fraction defect fixed
+  earlier.
+
+Neither surfaced as a test failure; both showed up only as accumulated
+warnings. **Do not dismiss a clean pass with a warning tail.**
+
+### Tests
+
+`tests/testthat/test-importCellSNP.R` — 34 assertions. Suite is now **98 across
+4 files**. `R CMD check` Status: OK.
+
+### Build note
+
+`R CMD build` needs pandoc for the vignettes and it is not on the shell PATH.
+Prepend RStudio's bundled copy:
+`/usr/lib/rstudio/resources/app/bin/quarto/bin/tools/x86_64`
