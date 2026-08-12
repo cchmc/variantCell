@@ -67,12 +67,57 @@ Statistical testing is performed using Wilcoxon rank-sum test when calc_p=TRUE.
 Multiple testing correction is applied using the specified p.adjust.method.
 
 Note that this tests normalized read depth at the variant site, which is
-transcript abundance, not genotype. It is the coverage companion to
-findSNPsByGroup(): use it to confirm depth was adequate in the group where a
-SNP was called absent, rather than as a variant-discovery method.
+transcript abundance, not genotype. Allele identity never enters the statistic;
+AD is used only to decide which SNPs are testable.
 
 The parallel implementation distributes SNP processing across multiple CPU cores
 for significantly improved performance on large datasets.
+}
+\section{What this measures, and when to use it}{
+
+Read depth at a variant position is a real and correctly computed measurement of
+the abundance of the transcript containing it. The question is not whether it is
+reliable but whether it is the best available instrument, and that depends
+entirely on the question.
+
+Measured on 52,809 cells of the lung transplant cohort, against the matched gene
+count matrix:
+\itemize{
+  \item SNP positions capture \strong{51.3\%} of all reads in the gene matrix
+        (234.9M of 458.0M), so the measurement is not thin in aggregate.
+  \item But \strong{40.3\%} of expressed genes (11,193 of 27,765) contain no
+        covered SNP at all and are invisible to this view.
+  \item The median gene retains only \strong{20\%} of its reads at SNP positions,
+        though well-covered genes retain up to 90\%.
+  \item The median gene carries \strong{13 SNPs} (99th percentile: 307), so it
+        generates 13 correlated tests of one biological fact, and correction runs
+        over ~739,000 sites rather than ~20,000 genes -- roughly
+        \strong{37x stricter}.
+}
+
+\strong{Do not use this as a genome-wide discovery scan.} Per test you have on the
+order of 1.5\% of a gene's evidence while paying 37x the multiple-testing penalty,
+on 60\% of the genes. Seurat's FindMarkers on the gene count matrix strictly
+dominates it for "which genes differ between these cell groups".
+
+\strong{It is appropriate for:}
+\itemize{
+  \item Targeted interrogation of a specific gene. If you already know which gene
+        matters, the multiple-testing argument largely evaporates and a
+        well-covered gene retains most of its reads.
+  \item The coverage companion to \code{findSNPsByGroup()}: confirming depth was
+        adequate in the group where a SNP was called absent, since otherwise
+        "absent" only means "not detected".
+  \item Checking coverage comparability before comparing allele fractions between
+        groups with \code{computeAlleleFractionIndex()}, since differential depth
+        creates differential power.
+}
+
+Positional questions that gene counts genuinely cannot answer -- 3' UTR length and
+alternative polyadenylation from depth ratios between sites within one gene, or
+transcription outside annotated genes -- are real and unique to this data, but
+\strong{no current function extracts them}; findDESNPs tests one site against
+groups, not sites against each other.
 }
 \note{
 \itemize{

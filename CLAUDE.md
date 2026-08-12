@@ -562,3 +562,91 @@ Six methods were public without being API: `calculate_optimal_range`,
 
 All moved to `private`, call sites updated to `private$`, `man/process_tsv.Rd`
 removed. Public surface is now **25 members**, all deliberate.
+
+
+## Measured: What SNP-Site Depth Actually Captures (08/12/26)
+
+The claim "Seurat dominates findDESNPs" was asserted for months and finally
+**measured** on 2026-08-12, over the 52,809 cells shared between the variantCell
+project and the merged Seurat object:
+
+| | |
+|---|---|
+| genes in Seurat matrix | 27,765 |
+| genes with >=1 covered SNP | 16,572 |
+| **genes invisible to the SNP view** | **11,193 (40.3%)** |
+| total reads: gene matrix vs SNP sites | 458.0M vs 234.9M = **51.3%** |
+| capture ratio per gene, median | **0.202** (75th 0.46, 90th 0.90) |
+| SNPs per gene, median / 99th | **13 / 307** |
+
+**The measurement is not thin** — half of all reads land at SNP positions, and
+well-covered genes retain 90%. The earlier framing ("a small fraction of the
+evidence") was wrong.
+
+**The domination is a multiple-testing result, not a read-count one.** A median
+gene carries 13 SNPs, so it produces 13 correlated tests of one fact, and
+correction runs over ~739,000 sites instead of ~20,000 genes — **37x stricter**.
+Per test you hold ~1.5% of a gene's evidence against 37x the penalty, on 60% of
+the genes.
+
+So the corrected position, now in the roxygen and `man/findDESNPs.Rd`:
+
+- **Not a genome-wide discovery scan.** Ever.
+- **Legitimate for a targeted gene** — if you already know which gene matters the
+  multiple-testing argument largely evaporates.
+- **Legitimate as the coverage companion** to `findSNPsByGroup()`, and as a
+  coverage-comparability check before `computeAlleleFractionIndex()`.
+
+**Unexploited and genuinely unique to this data:** depth *ratios between sites
+within one gene* give 3'UTR length / alternative polyadenylation, and ~12.5% of
+sites sit outside annotated genes. Gene counts cannot see either. No current
+function extracts them — `findDESNPs` tests one site against groups, not sites
+against each other. That is the one real gap in this area.
+
+## Science Direction (as of 08/12/26)
+
+**What the package is:** a multi-genome single-cell analysis layer on top of
+cellsnp-lite/Vireo, with a transplant-specific identification module. It consumes
+their output and replaces neither. `07-donor-inference.R` is the only
+transplant-specific part — 349 of 8,364 lines. Everything else applies to any
+multi-donor experiment.
+
+**Closed. Do not re-open without new data:**
+
+| line | why |
+|---|---|
+| differential germline variants for disease state | genotype is fixed; 4 independent failures |
+| presence/absence across patients | permutation ceiling, min p 0.057 at 3v4 |
+| ASE | censored at the interesting end; needs pure recipient DNA |
+| global editing index vs disease | capped, and ISG score beats it 7/7 vs 6/7 |
+| passenger leukocyte decay | already published |
+| donor-vs-recipient within cell type | 1 of 35 cells has both arms; graft/recipient is confounded with structural/immune |
+
+**Open, ranked:**
+
+1. **Spatial chimerism** (`CLAD_spatial`, shipped Mar 2026). Directly resolves the
+   airway-restricted recipient epithelium question — sampling artifact vs
+   anastomotic migration. Novel; nobody maps donor/recipient genotype spatially in
+   lung transplant. Blocked on locating the spatial BAMs.
+2. **Compartment-specific chimerism vs clinical outcome.** One test per hypothesis,
+   so the permutation ceiling does not bite. Clinical metadata is in the two
+   LungChat .docx files. Check first whether the published decay is
+   compartment-resolved.
+3. **Genotype QC as a standalone utility.** `checkGenotypeConcordance()` recovers
+   distinct-genome counts with no patient column, so a mislabelled sample cannot
+   hide. Sample swaps are endemic in multi-donor single-cell work and there is no
+   standard tool. Probably the most broadly citable piece after `inferDonorType()`.
+4. **Cross-individual doublet detection.** Use Vireo's calls, do not rebuild them —
+   its mixture model is validated and variantCell does not do the clustering. The
+   additive step is using genotype doublets to estimate the *total* doublet rate
+   (inter-individual doublets are 2pq of all doublets) and to benchmark
+   scDblFinder against a real labelled set rather than simulation.
+5. **Recoding sites** — the one remaining differential idea, small enough that
+   per-site testing is affordable under correction. `findDEAlleleFraction(sites=)`.
+
+**Engineering priority, above all of the above:** make the vignettes executable.
+All four are `eval=FALSE` across 24 chunks, so nothing in the repo runs the public
+API end to end. That is the systemic reason defects survive here — three of four
+DE-SNP bugs, plus both import bugs found on 08-12, produced wrong output or
+warnings rather than errors. `05-plots.R` is 1,142 lines with no verification of
+any kind and would benefit most.
