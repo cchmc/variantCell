@@ -35,8 +35,6 @@ Imports:
     methods,
     utils
 Suggests:
-    ellmer,
-    jsonlite,
     SummarizedExperiment,
     Seurat,
     SingleCellExperiment,

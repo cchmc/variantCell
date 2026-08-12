@@ -147,215 +147,29 @@ This ensures reliable, high-quality cell annotations by filtering out low-covera
 #### Implementation Location:
 The function is located in `R/06-utils.R` and integrates seamlessly with the existing SNP database structure, properly handling the `snp_info` metadata and `cell_metadata$cell_id` columns.
 
-## Major New Feature - Comprehensive SNP Prioritization (07/28/25)
+## Removed - prioritizeSNPs (08/12/26)
 
-### Function Added: `prioritizeSNPs()`
+`prioritizeSNPs()` and its 13 helpers were deleted: **1,212 lines, 37% of
+`04-DE-SNP.R` and 14.5% of the package.**
 
-A powerful new analysis function that prioritizes SNPs using multiple methodologies including fold change consistency with gene expression data, machine learning regression, and LLM-based clinical relevance assessment. This function integrates differential SNP analysis results with single-cell gene expression data to identify the most biologically and clinically relevant variants.
+Reasons, in order of weight:
 
-#### Multi-Modal Prioritization Approach
+- **Four defects found 08/06, three of which produced silently wrong output** —
+  scores attached to the wrong SNPs via a sorting `merge()`, unannotated SNPs
+  collapsed onto one score through `match()` on NA, and `set.seed(42)` hijacking
+  the caller's global RNG. Every result it produced before that date was invalid.
+- **Never had a test file.**
+- The "ensemble ML regression" was a fixed weighted sum of hand-built features
+  with no training, no held-out data and no validation.
+- The LLM clinical assessment issued billable external API calls and emitted
+  confident clinical claims — druggability scores, therapeutic potential — with
+  no ground truth. Not defensible in a manuscript.
 
-The function implements three complementary prioritization methods that can be used individually or in combination:
+`ellmer` and `jsonlite` dropped from Suggests; `man/prioritizeSNPs.Rd` and the
+NAMESPACE export removed. Suite still 102 assertions, `R CMD check` Status: OK.
 
-##### 1. **Fold Change Consistency Scoring**
-- Compares SNP-associated gene expression changes with overall condition-specific expression patterns
-- Identifies SNPs whose effects align with known disease biology
-- Calculates directional matching and magnitude similarity
-- Scores on 0-1 scale where higher values indicate better biological consistency
-
-##### 2. **Advanced Machine Learning Regression**
-- **Ensemble ML Architecture**: Combines four different modeling approaches:
-  - **Linear Model** (35%): Weighted combination with biologically-informed feature weights
-  - **Non-linear Model** (25%): Quadratic terms and synergistic interactions
-  - **Principal Component Model** (20%): Variance-weighted composite scoring
-  - **Rank-based Model** (20%): Robust rank-based prioritization
-
-- **Advanced Feature Engineering**:
-  - Interaction features (effect_size × presence_score)
-  - Quality-weighted differences (alt_frac_diff × overall_quality)
-  - Rare variant scoring based on population frequency
-  - Minor allele frequency considerations
-
-- **Robust Processing**:
-  - Intelligent missing value imputation
-  - Feature normalization and scaling
-  - Controlled randomness for tie-breaking
-
-##### 3. **LLM-Based Clinical Relevance Assessment**
-- **Integration with ellmer Package**: Uses tidyverse's `ellmer` for structured LLM communication
-- **Multi-Provider Support**: Automatically tries Anthropic Claude, then OpenAI GPT
-- **Structured Assessment**: Evaluates clinical significance, therapeutic potential, disease associations
-- **Batch Processing**: Efficient API usage with rate limiting and error handling
-- **Graceful Fallback**: Rule-based clinical assessment when LLM APIs unavailable
-
-#### Key Features
-
-1. **Flexible Method Selection**: Choose any combination of the three approaches
-2. **Intelligent API Integration**: 
-   - Requires `ellmer` package: `remotes::install_github('tidyverse/ellmer')`
-   - Uses environment variables: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
-   - Falls back to rule-based assessment if LLM unavailable
-
-3. **Comprehensive Output**:
-   - Top prioritized SNPs with combined scores
-   - Detailed results from each prioritization method
-   - Method weights and summary statistics
-   - Clinical assessments with therapeutic implications
-
-4. **Robust Error Handling**: Continues analysis even if individual methods fail
-
-#### Usage Examples
-
-```r
-# Install required dependencies
-remotes::install_github('tidyverse/ellmer')
-
-# Set API key for LLM assessment (optional)
-Sys.setenv(ANTHROPIC_API_KEY = "your_anthropic_api_key")
-# OR
-Sys.setenv(OPENAI_API_KEY = "your_openai_api_key")
-
-# Basic usage with all methods
-prioritized <- prioritizeSNPs(
-  snp_df = de_snp_results,           # Output from findDESNPs/findSNPsByGroup
-  gex_fc_df = gene_expression_fc     # Gene expression fold changes
-)
-
-# Use only specific methods
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  method = c("fc_consistency", "ml_regression"),
-  top_n_final = 10
-)
-
-# Custom ML feature selection
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  ml_features = c("effect_size", "presence_score", "population_AF"),
-  top_n_ml = 30,
-  top_n_final = 15
-)
-
-# Custom LLM prompt for specific disease context
-custom_prompt <- paste(
-  "You are analyzing genetic variants in the context of chronic lung disease.",
-  "Focus on variants with known associations to fibrosis, inflammation,",
-  "and tissue remodeling pathways. {variant_info}",
-  "Provide structured JSON output as specified."
-)
-
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  llm_prompt_template = custom_prompt
-)
-```
-
-#### Output Structure
-
-The function returns a comprehensive list containing:
-
-```r
-$prioritized_snps        # Top-ranked SNPs with combined priority scores
-$fc_consistency_scores   # Detailed fold change consistency analysis
-$ml_scores              # ML regression results with component breakdowns
-$llm_assessments        # LLM clinical relevance evaluations
-$method_weights         # Weighting scheme used for combination
-$summary                # Comprehensive analysis summary statistics
-```
-
-#### Clinical Assessment Fields
-
-When LLM assessment is used, each SNP receives detailed clinical annotations:
-
-- **Clinical Relevance Score** (0-1): Overall clinical importance
-- **Clinical Category**: High/Moderate/Low clinical significance
-- **Therapeutic Potential**: Drug_target/Biomarker/Risk_factor/Unknown
-- **Disease Association**: Strong_evidence/Moderate_evidence/Weak_evidence/None
-- **Mechanism of Action**: Brief description of variant effects
-- **Clinical Evidence**: Strong/Moderate/Limited/None
-- **Druggability Score** (0-1): Therapeutic targetability
-- **Pathway Involvement**: Key biological pathways affected
-
-#### Integration with Analysis Workflow
-
-The prioritization function integrates seamlessly with the existing variantCell workflow:
-
-1. **Differential Analysis**: Run `findDESNPs()` or `findSNPsByGroup()`
-2. **Expression Integration**: Use `analyze_snp_differential_expression()` helper
-3. **Prioritization**: Apply `prioritizeSNPs()` for comprehensive ranking
-4. **Clinical Interpretation**: Review LLM assessments for top variants
-5. **Validation**: Use `getCellsForSNPs()` for cell-level validation
-
-#### Performance Considerations
-
-- **Memory Efficient**: Processes SNPs in batches to manage memory usage
-- **API Optimization**: Batched LLM calls with rate limiting
-- **Scalable**: Handles datasets with thousands of SNPs
-- **Robust**: Continues analysis even with partial method failures
-
-#### Implementation Location
-
-The function and all helper functions are located in `R/04-DE-SNP.R` (lines 1977-3113), making it part of the core SNP analysis module. The implementation includes comprehensive error handling, progress reporting, and fallback mechanisms to ensure reliable operation across different computational environments.
-
-## Critical Fixes to prioritizeSNPs (08/06/26)
-
-Four defects were found and fixed in `prioritizeSNPs()`. Three of them produced
-silently wrong results rather than errors, so **any prioritization output
-generated before this date should be regarded as invalid and re-run.**
-
-### 1. Scores were attached to the wrong SNPs
-
-`.combine_prioritization_scores()` computed `combined_score` in `all_scores` row
-order, then assigned it onto the output of
-`merge(all_scores, snp_df, by = c("rs_id","gene_name"))`. `merge()` sorts its
-result by the `by` columns, so unless `snp_df` arrived already sorted by rs_id —
-essentially never, since DE output is ranked by p-value — every SNP received a
-different SNP's priority score. On a 5-SNP test case 4 of 5 rows were wrong and
-the function named the wrong top SNP.
-
-Fixed by realigning every method onto `.snp_key`, a stable per-row identifier,
-and joining positionally instead of via `merge()`.
-
-### 2. Hard crash on duplicated rs_id/gene pairs
-
-The same `merge()` expanded the row count whenever an rs_id/gene_name pair
-repeated (a SNP mapping to two transcripts, or two comparison rows), producing
-`replacement has N rows, data has M`. `.compute_fc_consistency_scores()` had the
-same latent expansion against `gex_fc_df`.
-
-### 3. Unannotated SNPs collapsed onto a single score
-
-Scores were realigned with `match(all_scores$rs_id, ...)`. `match()` treats `NA`
-as a matchable value, so every SNP lacking a dbSNP annotation matched the *first*
-NA row and inherited its score. Given how much of a cellSNP callset has no rs
-ID, this affected a large fraction of rows. `.snp_key` removes the dependence on
-rs_id entirely.
-
-### 4. The package hijacked the caller's RNG
-
-`set.seed(42)` inside `.compute_ml_prioritization()` reset the **global** random
-stream as a side effect, silently changing the results of anything run afterwards
-in the same session (Seurat UMAP, clustering, `downsampleVariant()`). The
-accompanying `rnorm(n, 0, 0.02)` "tie-breaking" jitter also perturbed genuinely
-different scores, not just ties, so it was removed rather than localised —
-`order()` already breaks ties deterministically by row position.
-`.select_top_snps_for_llm()` also called `runif()`, which both selected SNPs for
-paid LLM assessment at random and consumed the caller's RNG.
-
-### Also changed
-
-- `llm_clinical` is **no longer in the default `method=`**. It issued billable
-  external API calls on a plain `prioritizeSNPs(snp_df, gex_fc_df)` call. It is
-  now opt-in, with `match.arg()` validation of the method vector.
-- `method_weights` is returned properly instead of smuggled through a
-  data-frame column.
-- `ellmer` added to `Suggests` (it was called via `::` but undeclared).
-
-A regression test covering all four defects is in
-`History/2026-08-06_prioritizeSNPs-regression.R`.
+The prior "Critical Fixes to prioritizeSNPs" section is retained below only as
+the record of why this was cut.
 
 ## Critical Fixes to findDESNPs (08/11/26)
 

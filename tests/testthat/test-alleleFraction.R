@@ -196,3 +196,26 @@ test_that("the caller's RNG is untouched", {
   after <- runif(3)
   expect_equal(before, after)
 })
+
+
+test_that("min_cells is applied before common_sites, not after", {
+  # An arm that will be discarded for having too few cells must not constrain
+  # the site intersection of the arm that survives. Otherwise the survivor is
+  # left with a site set determined by a pseudobulk absent from the output.
+  spec <- data.frame(
+    sample_id = c("S1","S1"), group = c("Donor","Recipient"),
+    n_cells = c(40, 2), af = c(0.2, 0.3), stringsAsFactors = FALSE)
+  db <- make_af_db(spec, n_sites = 20)
+  # the tiny Recipient arm covers only one site
+  tiny <- which(db$cell_metadata$donor_type == "Recipient")
+  db$dp_matrix[2:20, tiny] <- 0
+  db$ad_matrix[2:20, tiny] <- 0
+  p <- new_project(db)
+
+  idx <- p$computeAlleleFractionIndex(min_dp_site = 10, min_cells = 20,
+                                      common_sites = TRUE, verbose = FALSE)
+  expect_equal(nrow(idx), 1)          # only Donor survives min_cells
+  expect_equal(idx$group, "Donor")
+  expect_equal(idx$n_sites, 20)       # NOT crippled to 1 by the dropped arm
+  expect_equal(idx$index, 0.2, tolerance = 1e-9)
+})

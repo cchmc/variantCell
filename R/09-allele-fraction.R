@@ -214,6 +214,19 @@ variantCell$set("public", "computeAlleleFractionIndex", function(group_by = NULL
   if (!is.null(within)) out$within <- fields[, 3]
   out$n_cells <- agg$n_cells
 
+  # Drop undersized pseudobulks BEFORE intersecting sites. Otherwise an arm that
+  # is about to be discarded for having too few cells still constrains the
+  # intersection, and its surviving partner is left with a site set determined by
+  # a pseudobulk that does not appear in the output at all.
+  big <- out$n_cells >= min_cells
+  if (!any(big)) {
+    warning("no pseudobulk met min_cells", call. = FALSE)
+    return(out[0, , drop = FALSE])
+  }
+  out <- out[big, , drop = FALSE]
+  agg$AD <- agg$AD[, big, drop = FALSE]
+  agg$DP <- agg$DP[, big, drop = FALSE]
+
   # Restrict to sites callable in every arm of the same split unit, so the two
   # arms are compared on identical positions.
   usable <- agg$DP >= min_dp_site
@@ -240,7 +253,7 @@ variantCell$set("public", "computeAlleleFractionIndex", function(group_by = NULL
   out$total_dp <- vapply(seq_len(ncol(agg$DP)), function(j) sum(agg$DP[usable[, j], j]), numeric(1))
   out$index    <- idx
 
-  out <- out[out$n_cells >= min_cells & !is.na(out$index), , drop = FALSE]
+  out <- out[!is.na(out$index), , drop = FALSE]
   out <- out[order(out$group, out$split), , drop = FALSE]
   rownames(out) <- NULL
 
