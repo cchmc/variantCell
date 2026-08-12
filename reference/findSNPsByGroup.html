@@ -94,6 +94,12 @@ other group for a SNP to be considered absent there.</p></dd>
 in sample-stratified mode: c(fold_change, sample_consistency, depth_reliability).
 Default: c(0.4, 0.3, 0.3). Weights should sum to 1.0.</p></dd>
 
+
+<dt id="arg-check-genotype">check_genotype<a class="anchor" aria-label="anchor" href="#arg-check-genotype"></a></dt>
+<dd><p>Logical. Whether to measure genotype concordance between
+the two groups before testing, and warn when the contrast is not a genotype
+contrast. Default TRUE. See <code><a href="checkGenotypeConcordance.html">checkGenotypeConcordance</a></code>.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -105,6 +111,11 @@ gene annotation, depth metrics, allele frequencies, and presence classification.
 <dt>summary</dt>
 <dd><p>List with analysis overview including counts of SNPs present in each group
 and parameters used for filtering.</p></dd>
+
+<dt>genotype_check</dt>
+<dd><p>Result of the genotype concordance guard, when
+check_genotype = TRUE, so a flagged contrast stays recognisable as flagged when
+the object is read back later.</p></dd>
 
 </dl></div>
     <div class="section level2">

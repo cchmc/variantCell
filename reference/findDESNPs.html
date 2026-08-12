@@ -77,7 +77,7 @@ If NULL, uses all cells regardless of donor type.</p></dd>
 
 
 <dt id="arg-min-alt-frac">min_alt_frac<a class="anchor" aria-label="anchor" href="#arg-min-alt-frac"></a></dt>
-<dd><p>Numeric 0-1. Minimum alternative allele fraction to consider a cell as expressing.</p></dd>
+<dd><p>Numeric, 0 to 1. Minimum alternative allele fraction to consider a cell as expressing.</p></dd>
 
 
 <dt id="arg-logfc-threshold">logfc.threshold<a class="anchor" aria-label="anchor" href="#arg-logfc-threshold"></a></dt>
@@ -137,12 +137,58 @@ up/downregulated SNPs, and parameter settings used.</p></dd>
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>The function calculates differential expression by comparing the average expression
 of SNPs between two groups, normalized by the total number of cells in each group.
-For each SNP, cells are only considered as expressing if they have a minimum
-alternative allele fraction (min_alt_frac) and positive read depth.</p>
+A cell counts as expressing a SNP if it has positive read depth and an alternative
+allele fraction of at least min_alt_frac. Alternative allele fractions are always
+computed from raw AD/DP, never from normalized depth, regardless of use_normalized.</p>
+<p>min_alt_frac and min_expr_cells select which SNPs are testable; they do not
+restrict which cells contribute to the effect size. avg_expr_group1/2 and the
+Wilcoxon test are both computed over all cells in the group, so the reported
+log2fc and p-value describe the same population.</p>
 <p>Statistical testing is performed using Wilcoxon rank-sum test when calc_p=TRUE.
 Multiple testing correction is applied using the specified p.adjust.method.</p>
+<p>Note that this tests normalized read depth at the variant site, which is
+transcript abundance, not genotype. Allele identity never enters the statistic;
+AD is used only to decide which SNPs are testable.</p>
 <p>The parallel implementation distributes SNP processing across multiple CPU cores
 for significantly improved performance on large datasets.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="what-this-measures-and-when-to-use-it">What this measures, and when to use it<a class="anchor" aria-label="anchor" href="#what-this-measures-and-when-to-use-it"></a></h2>
+
+
+<p>Read depth at a variant position is a real and correctly computed measurement of
+the abundance of the transcript containing it. The question is not whether it is
+reliable but whether it is the best available instrument, and that depends
+entirely on the question.</p>
+<p>Measured on 52,809 cells of the lung transplant cohort, against the matched gene
+count matrix:</p><ul><li><p>SNP positions capture <strong>51.3%</strong> of all reads in the gene matrix
+        (234.9M of 458.0M), so the measurement is not thin in aggregate.</p></li>
+<li><p>But <strong>40.3%</strong> of expressed genes (11,193 of 27,765) contain no
+        covered SNP at all and are invisible to this view.</p></li>
+<li><p>The median gene retains only <strong>20%</strong> of its reads at SNP positions,
+        though well-covered genes retain up to 90%.</p></li>
+<li><p>The median gene carries <strong>13 SNPs</strong> (99th percentile: 307), so it
+        generates 13 correlated tests of one biological fact, and correction runs
+        over ~739,000 sites rather than ~20,000 genes – roughly
+        <strong>37x stricter</strong>.</p></li>
+</ul><p><strong>Do not use this as a genome-wide discovery scan.</strong> Per test you have on the
+order of 1.5% of a gene's evidence while paying 37x the multiple-testing penalty,
+on 60% of the genes. Seurat's FindMarkers on the gene count matrix strictly
+dominates it for "which genes differ between these cell groups".</p>
+<p><strong>It is appropriate for:</strong></p><ul><li><p>Targeted interrogation of a specific gene. If you already know which gene
+        matters, the multiple-testing argument largely evaporates and a
+        well-covered gene retains most of its reads.</p></li>
+<li><p>The coverage companion to <code><a href="findSNPsByGroup.html">findSNPsByGroup()</a></code>: confirming depth was
+        adequate in the group where a SNP was called absent, since otherwise
+        "absent" only means "not detected".</p></li>
+<li><p>Checking coverage comparability before comparing allele fractions between
+        groups with <code><a href="computeAlleleFractionIndex.html">computeAlleleFractionIndex()</a></code>, since differential depth
+        creates differential power.</p></li>
+</ul><p>Positional questions that gene counts genuinely cannot answer – 3' UTR length and
+alternative polyadenylation from depth ratios between sites within one gene, or
+transcription outside annotated genes – are real and unique to this data, but
+<strong>no current function extracts them</strong>; findDESNPs tests one site against
+groups, not sites against each other.</p>
     </div>
     <div class="section level2">
     <h2 id="note">Note<a class="anchor" aria-label="anchor" href="#note"></a></h2>

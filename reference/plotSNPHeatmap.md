@@ -31,8 +31,8 @@ options.
 
 - min_alt_frac:
 
-  Numeric 0-1. Minimum alternative allele fraction required for a SNP to
-  be counted as expressed in a cell. Default is 0.2.
+  Numeric, 0 to 1. Minimum alternative allele fraction required for a
+  SNP to be counted as expressed in a cell. Default is 0.2.
 
 - scale_data:
 

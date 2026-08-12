@@ -212,262 +212,187 @@ The function is located in `R/06-utils.R` and integrates seamlessly with
 the existing SNP database structure, properly handling the `snp_info`
 metadata and `cell_metadata$cell_id` columns.
 
-## Major New Feature - Comprehensive SNP Prioritization (07/28/25)
+## Removed - prioritizeSNPs (08/12/26)
 
-### Function Added: `prioritizeSNPs()`
+`prioritizeSNPs()` and its 13 helpers were deleted: **1,212 lines, 37%
+of `04-DE-SNP.R` and 14.5% of the package.**
 
-A powerful new analysis function that prioritizes SNPs using multiple
-methodologies including fold change consistency with gene expression
-data, machine learning regression, and LLM-based clinical relevance
-assessment. This function integrates differential SNP analysis results
-with single-cell gene expression data to identify the most biologically
-and clinically relevant variants.
+Reasons, in order of weight:
 
-#### Multi-Modal Prioritization Approach
+- **Four defects found 08/06, three of which produced silently wrong
+  output** — scores attached to the wrong SNPs via a sorting
+  [`merge()`](https://rdrr.io/r/base/merge.html), unannotated SNPs
+  collapsed onto one score through
+  [`match()`](https://rdrr.io/r/base/match.html) on NA, and
+  `set.seed(42)` hijacking the caller’s global RNG. Every result it
+  produced before that date was invalid.
+- **Never had a test file.**
+- The “ensemble ML regression” was a fixed weighted sum of hand-built
+  features with no training, no held-out data and no validation.
+- The LLM clinical assessment issued billable external API calls and
+  emitted confident clinical claims — druggability scores, therapeutic
+  potential — with no ground truth. Not defensible in a manuscript.
 
-The function implements three complementary prioritization methods that
-can be used individually or in combination:
+`ellmer` and `jsonlite` dropped from Suggests; `man/prioritizeSNPs.Rd`
+and the NAMESPACE export removed. Suite still 102 assertions,
+`R CMD check` Status: OK.
 
-##### 1. **Fold Change Consistency Scoring**
+The prior “Critical Fixes to prioritizeSNPs” section is retained below
+only as the record of why this was cut.
 
-- Compares SNP-associated gene expression changes with overall
-  condition-specific expression patterns
-- Identifies SNPs whose effects align with known disease biology
-- Calculates directional matching and magnitude similarity
-- Scores on 0-1 scale where higher values indicate better biological
-  consistency
+## Critical Fixes to findDESNPs (08/11/26)
 
-##### 2. **Advanced Machine Learning Regression**
+Three defects, all active under the **default** `use_normalized = TRUE`.
 
-- **Ensemble ML Architecture**: Combines four different modeling
-  approaches:
-  - **Linear Model** (35%): Weighted combination with
-    biologically-informed feature weights
-  - **Non-linear Model** (25%): Quadratic terms and synergistic
-    interactions
-  - **Principal Component Model** (20%): Variance-weighted composite
-    scoring
-  - **Rank-based Model** (20%): Robust rank-based prioritization
-- **Advanced Feature Engineering**:
-  - Interaction features (effect_size × presence_score)
-  - Quality-weighted differences (alt_frac_diff × overall_quality)
-  - Rare variant scoring based on population frequency
-  - Minor allele frequency considerations
-- **Robust Processing**:
-  - Intelligent missing value imputation
-  - Feature normalization and scaling
-  - Controlled randomness for tie-breaking
+### 1. Alt fractions were divided by log-normalized depth
 
-##### 3. **LLM-Based Clinical Relevance Assessment**
+`normalizeSnpCounts()` returns `log1p(DP * 10000 / colSums(DP))`, and
+there is **no normalized AD matrix** anywhere in the package. The
+per-SNP loop pulled DP from `dp_matrix_normalized` and AD from the raw
+`ad_matrix`, then computed `alt_frac <- ad/dp`. That is a raw count over
+a log-scaled depth, not a fraction — it reached **10.7** on the real
+32-sample database.
 
-- **Integration with ellmer Package**: Uses tidyverse’s `ellmer` for
-  structured LLM communication
-- **Multi-Provider Support**: Automatically tries Anthropic Claude, then
-  OpenAI GPT
-- **Structured Assessment**: Evaluates clinical significance,
-  therapeutic potential, disease associations
-- **Batch Processing**: Efficient API usage with rate limiting and error
-  handling
-- **Graceful Fallback**: Rule-based clinical assessment when LLM APIs
-  unavailable
+Because `dp_norm` sits around 2–4 while `ad` is a raw count,
+`>= min_alt_frac` was satisfied by almost any cell carrying a single alt
+read, so **`min_alt_frac` was effectively disabled**. The
+`mean_alt_frac1/2` output columns, which users read as allele fractions,
+were wrong by the same factor.
 
-#### Key Features
+Alt fractions and the expressing-cell gate are now always computed from
+raw AD/DP regardless of `use_normalized`.
 
-1.  **Flexible Method Selection**: Choose any combination of the three
-    approaches
-2.  **Intelligent API Integration**:
-    - Requires `ellmer` package:
-      `remotes::install_github('tidyverse/ellmer')`
-    - Uses environment variables: `ANTHROPIC_API_KEY` or
-      `OPENAI_API_KEY`
-    - Falls back to rule-based assessment if LLM unavailable
-3.  **Comprehensive Output**:
-    - Top prioritized SNPs with combined scores
-    - Detailed results from each prioritization method
-    - Method weights and summary statistics
-    - Clinical assessments with therapeutic implications
-4.  **Robust Error Handling**: Continues analysis even if individual
-    methods fail
+### 2. Effect size and p-value described different populations
 
-#### Usage Examples
+`log2fc` summed depth over gated cells only; `wilcox.test(dp1, dp2)` ran
+on all cells including zeros. `avg_expr1/2` now run over all cells in
+the group, so the two agree. `min_alt_frac`/`min_expr_cells` select
+which SNPs are *testable*, not which cells contribute to the effect size
+— the Seurat convention.
 
-``` r
+### 3. A single qualifying SNP crashed the function
 
-# Install required dependencies
-remotes::install_github('tidyverse/ellmer')
+`dp_matrix_subset[qualifying_snp_indices, all_group_indices]` dropped to
+a vector whenever exactly one SNP passed pre-filtering, and every
+downstream `[i,]` failed with `incorrect number of dimensions`.
+`drop = FALSE` added throughout.
 
-# Set API key for LLM assessment (optional)
-Sys.setenv(ANTHROPIC_API_KEY = "your_anthropic_api_key")
-# OR
-Sys.setenv(OPENAI_API_KEY = "your_openai_api_key")
+### Scope
 
-# Basic usage with all methods
-prioritized <- prioritizeSNPs(
-  snp_df = de_snp_results,           # Output from findDESNPs/findSNPsByGroup
-  gex_fc_df = gene_expression_fc     # Gene expression fold changes
-)
+The SNP-level **pre-filter** used raw AD/DP and was correct, so SNP
+*selection* was never affected. `findSNPsByGroup_GroupOnly` and
+`_SampleStratified` use raw matrices throughout and are unaffected.
+`findDESNPs` appears in no analysis script in `History/`, so **no
+existing result is affected**.
 
-# Use only specific methods
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  method = c("fc_consistency", "ml_regression"),
-  top_n_final = 10
-)
+Also removed a per-SNP [`gc()`](https://rdrr.io/r/base/gc.html) inside
+the parallel worker loop.
 
-# Custom ML feature selection
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  ml_features = c("effect_size", "presence_score", "population_AF"),
-  top_n_ml = 30,
-  top_n_final = 15
-)
+### Tests
 
-# Custom LLM prompt for specific disease context
-custom_prompt <- paste(
-  "You are analyzing genetic variants in the context of chronic lung disease.",
-  "Focus on variants with known associations to fibrosis, inflammation,",
-  "and tissue remodeling pathways. {variant_info}",
-  "Provide structured JSON output as specified."
-)
+First `tests/` directory in the package:
+`tests/testthat/test-findDESNPs.R`, 12 assertions across 5 tests
+including serial/parallel agreement. `testthat` was already declared in
+Suggests with edition 3.
 
-prioritized <- prioritizeSNPs(
-  snp_df = de_results,
-  gex_fc_df = gex_changes,
-  llm_prompt_template = custom_prompt
-)
-```
+### What findDESNPs is actually for
 
-#### Output Structure
+It tests **normalized read depth at a variant site**, which is
+transcript abundance, not genotype. Documented accordingly: it is the
+*coverage companion* to
+[`findSNPsByGroup()`](https://github.com/cchmc/variantCell/reference/findSNPsByGroup.md)
+— use it to confirm depth was adequate in the group where a SNP was
+called absent, rather than as a variant-discovery method.
 
-The function returns a comprehensive list containing:
+## New Feature - Genotype Concordance Guard (08/11/26)
 
-``` r
-$prioritized_snps        # Top-ranked SNPs with combined priority scores
-$fc_consistency_scores   # Detailed fold change consistency analysis
-$ml_scores              # ML regression results with component breakdowns
-$llm_assessments        # LLM clinical relevance evaluations
-$method_weights         # Weighting scheme used for combination
-$summary                # Comprehensive analysis summary statistics
-```
+### Function Added: `checkGenotypeConcordance()` (`R/08-genotype-qc.R`)
 
-#### Clinical Assessment Fields
+Germline presence/absence is a **genotype test**. It is informative
+between different genomes, structurally empty within one genome, and
+confounded when a group pools several. Nothing in a cell-identity label
+says which situation the software is in, so this measures it from the
+data before any test runs.
 
-When LLM assessment is used, each SNP receives detailed clinical
-annotations:
+[`findSNPsByGroup()`](https://github.com/cchmc/variantCell/reference/findSNPsByGroup.md)
+now calls it by default (`check_genotype = TRUE`), warns on the two bad
+verdicts, and returns the verdict as `$genotype_check` so a flagged
+contrast is still recognisable as flagged when the object is read back
+later.
 
-- **Clinical Relevance Score** (0-1): Overall clinical importance
-- **Clinical Category**: High/Moderate/Low clinical significance
-- **Therapeutic Potential**: Drug_target/Biomarker/Risk_factor/Unknown
-- **Disease Association**:
-  Strong_evidence/Moderate_evidence/Weak_evidence/None
-- **Mechanism of Action**: Brief description of variant effects
-- **Clinical Evidence**: Strong/Moderate/Limited/None
-- **Druggability Score** (0-1): Therapeutic targetability
-- **Pathway Involvement**: Key biological pathways affected
+### Verdicts, calibrated on this cohort
 
-#### Integration with Analysis Workflow
+| contrast | concordance | within-group | verdict |
+|----|----|----|----|
+| TBX60 Donor vs Recipient (one library) | 0.611 | — | `different_genomes` |
+| TBX60 vs TBX66 Recipient (same patient) | 0.992 | — | `same_genome` |
+| all Donor vs all Recipient (pooled) | 0.723 | 0.52 / 0.54 | `heterogeneous_groups` |
 
-The prioritization function integrates seamlessly with the existing
-variantCell workflow:
+**The pooled row is the important one.** It is what
+`findSNPsByGroup_GroupOnly()` does when the identity is `donor_type`,
+and the within-group concordance (0.52) is **lower than the
+between-group value (0.723)** — the groups are less internally
+consistent than they are different from each other. A “Donor-specific”
+SNP found that way has to be present in every donor and absent in every
+recipient, which is an allele-frequency comparison between two arbitrary
+sets of unrelated people.
 
-1.  **Differential Analysis**: Run
-    [`findDESNPs()`](https://github.com/cchmc/variantCell/reference/findDESNPs.md)
-    or
-    [`findSNPsByGroup()`](https://github.com/cchmc/variantCell/reference/findSNPsByGroup.md)
-2.  **Expression Integration**: Use
-    `analyze_snp_differential_expression()` helper
-3.  **Prioritization**: Apply
-    [`prioritizeSNPs()`](https://github.com/cchmc/variantCell/reference/prioritizeSNPs.md)
-    for comprehensive ranking
-4.  **Clinical Interpretation**: Review LLM assessments for top variants
-5.  **Validation**: Use
-    [`getCellsForSNPs()`](https://github.com/cchmc/variantCell/reference/getCellsForSNPs.md)
-    for cell-level validation
+**The only clean donor/recipient contrast is within a single sample**:
+one donor genome against one recipient genome in one library. Neither
+existing mode enforces this — `_GroupOnly` pools across samples, and
+`_SampleStratified` requires consistency across unrelated pairs
+(`sample_consistency = 0.3`).
 
-#### Performance Considerations
+### Cross-patient contrasts are valid but combinatorially capped
 
-- **Memory Efficient**: Processes SNPs in batches to manage memory usage
-- **API Optimization**: Batched LLM calls with rate limiting
-- **Scalable**: Handles datasets with thousands of SNPs
-- **Robust**: Continues analysis even with partial method failures
+A pooled contrast across patients (ACR patients vs CLAD patients) is
+**not invalid** — it is a case-control genetic association study, which
+is a real design. What it cannot do is reach significance at this n, and
+the reason is arithmetic rather than statistical:
 
-#### Implementation Location
+    ACR (5 patients) vs CLAD (4)
+      best attainable two-sided p, perfect separation : 0.0159   [= 2/C(9,5)]
+      Bonferroni over 738,596 sites                   : 6.77e-08
+      short by                                        : 234,000x
 
-The function and all helper functions are located in `R/04-DE-SNP.R`
-(lines 1977-3113), making it part of the core SNP analysis module. The
-implementation includes comprehensive error handling, progress
-reporting, and fallback mechanisms to ensure reliable operation across
-different computational environments.
+This is a **permutation-count ceiling**, the same failure that closed
+the Patient 7 time series: it depends only on group sizes, so no
+sequencing depth, cell count or better statistic can beat it. A
+perfectly separating variant needs ~14 vs 14 patients merely to clear
+Bonferroni, and real association studies run to hundreds because effects
+are never perfectly separating.
 
-## Critical Fixes to prioritizeSNPs (08/06/26)
+So the guard **reports the ceiling instead of discouraging the
+analysis**, and recommends ranking hits as exploratory candidates rather
+than thresholding them. Two caveats survive at any n and ranking does
+not fix them: unrelated individuals differ in **ancestry**, shifting
+allele frequencies genome-wide independently of the grouping variable
+(real GWAS corrects with ancestry PCs, unestimable at n=9); and here ACR
+is chemistry-mixed while CLAD is 100% 3′, so the eligible-site
+denominator differs between the arms.
 
-Four defects were found and fixed in
-[`prioritizeSNPs()`](https://github.com/cchmc/variantCell/reference/prioritizeSNPs.md).
-Three of them produced silently wrong results rather than errors, so
-**any prioritization output generated before this date should be
-regarded as invalid and re-run.**
+`n_genomes1`/`n_genomes2` are obtained by single-linkage clustering of
+sub-pseudobulks on concordance, **not** from a patient column — on the
+real ACR-vs-CLAD contrast this recovered 5 vs 4 with no metadata at all,
+which also means a mislabelled sample cannot inflate the count.
 
-### 1. Scores were attached to the wrong SNPs
+### Method
 
-`.combine_prioritization_scores()` computed `combined_score` in
-`all_scores` row order, then assigned it onto the output of
-`merge(all_scores, snp_df, by = c("rs_id","gene_name"))`.
-[`merge()`](https://rdrr.io/r/base/merge.html) sorts its result by the
-`by` columns, so unless `snp_df` arrived already sorted by rs_id —
-essentially never, since DE output is ranked by p-value — every SNP
-received a different SNP’s priority score. On a 5-SNP test case 4 of 5
-rows were wrong and the function named the wrong top SNP.
+Best-covered autosomal sites only (sex chromosomes excluded, so a sex
+difference cannot masquerade as genotype distance), pseudobulk alt
+fractions binned at 0.15/0.85 into 0/1/2, pairwise concordance over
+jointly callable sites. Each group is additionally split by `sample_id`
+into sub-pseudobulks, so within-group heterogeneity is measured in the
+same pass.
 
-Fixed by realigning every method onto `.snp_key`, a stable per-row
-identifier, and joining positionally instead of via
-[`merge()`](https://rdrr.io/r/base/merge.html).
+The guard defaults to 10,000 sites rather than 30,000: verdicts and
+values are unchanged (0.612 / 0.990 / 0.718) at a third of the cost.
 
-### 2. Hard crash on duplicated rs_id/gene pairs
-
-The same [`merge()`](https://rdrr.io/r/base/merge.html) expanded the row
-count whenever an rs_id/gene_name pair repeated (a SNP mapping to two
-transcripts, or two comparison rows), producing
-`replacement has N rows, data has M`. `.compute_fc_consistency_scores()`
-had the same latent expansion against `gex_fc_df`.
-
-### 3. Unannotated SNPs collapsed onto a single score
-
-Scores were realigned with `match(all_scores$rs_id, ...)`.
-[`match()`](https://rdrr.io/r/base/match.html) treats `NA` as a
-matchable value, so every SNP lacking a dbSNP annotation matched the
-*first* NA row and inherited its score. Given how much of a cellSNP
-callset has no rs ID, this affected a large fraction of rows. `.snp_key`
-removes the dependence on rs_id entirely.
-
-### 4. The package hijacked the caller’s RNG
-
-`set.seed(42)` inside `.compute_ml_prioritization()` reset the
-**global** random stream as a side effect, silently changing the results
-of anything run afterwards in the same session (Seurat UMAP, clustering,
-[`downsampleVariant()`](https://github.com/cchmc/variantCell/reference/downsampleVariant.md)).
-The accompanying `rnorm(n, 0, 0.02)` “tie-breaking” jitter also
-perturbed genuinely different scores, not just ties, so it was removed
-rather than localised — [`order()`](https://rdrr.io/r/base/order.html)
-already breaks ties deterministically by row position.
-`.select_top_snps_for_llm()` also called
-[`runif()`](https://rdrr.io/r/stats/Uniform.html), which both selected
-SNPs for paid LLM assessment at random and consumed the caller’s RNG.
-
-### Also changed
-
-- `llm_clinical` is **no longer in the default `method=`**. It issued
-  billable external API calls on a plain
-  `prioritizeSNPs(snp_df, gex_fc_df)` call. It is now opt-in, with
-  [`match.arg()`](https://rdrr.io/r/base/match.arg.html) validation of
-  the method vector.
-- `method_weights` is returned properly instead of smuggled through a
-  data-frame column.
-- `ellmer` added to `Suggests` (it was called via `::` but undeclared).
-
-A regression test covering all four defects is in
-`History/2026-08-06_prioritizeSNPs-regression.R`.
+Validated against `History/2026-08-10_genotype-identity.R`, which used
+the same method to establish 0.99-within / 0.63-between across all 64
+sample x compartment pseudobulks. Tests in
+`tests/testthat/test-checkGenotypeConcordance.R` (16 assertions,
+deterministic fixtures, no RNG).
 
 ## New Feature - Donor/Recipient Inference (08/06/26)
 
@@ -598,9 +523,7 @@ is separate, unstarted work.
     [`plotSNPs()`](https://github.com/cchmc/variantCell/reference/plotSNPs.md)
     or
     [`plotSNPHeatmap()`](https://github.com/cchmc/variantCell/reference/plotSNPHeatmap.md)
-8.  **Prioritize**:
-    [`prioritizeSNPs()`](https://github.com/cchmc/variantCell/reference/prioritizeSNPs.md)
-    to rank variants
+8.  **Prioritize**: `prioritizeSNPs()` to rank variants
 
 ### Note on `addSampleData(data_type = "dataframe")`
 
@@ -627,4 +550,236 @@ metadata.
 
 The package integrates with the broader single-cell ecosystem including
 Seurat, Matrix (sparse matrices), data.table (fast I/O), and standard R
-statistical functions.
+statistical functions. \## New Module - Allele-Fraction Testing
+(08/12/26)
+
+### `R/09-allele-fraction.R`
+
+The package tested genotype (`findSNPsByGroup`, presence/absence) and
+read depth (`findDESNPs`, transcript abundance). **Neither tested
+`AD/DP` itself** — the fraction of reads carrying the alternative base.
+That is the statistic for anything where the variant lives in the RNA
+rather than the DNA: A-to-I editing rate, allele-specific expression,
+mtDNA heteroplasmy. The ASE work had to hand-roll it.
+
+Two entry points, because they cost very different amounts of
+statistical power:
+
+| function | tests | multiple-testing burden |
+|----|----|----|
+| [`computeAlleleFractionIndex()`](https://github.com/cchmc/variantCell/reference/computeAlleleFractionIndex.md) | one index per pseudobulk | **none** — a single statistic |
+| [`findDEAlleleFraction()`](https://github.com/cchmc/variantCell/reference/findDEAlleleFraction.md) | each site separately | Bonferroni over all sites |
+
+**The index is the one that works at this cohort’s group sizes.** A
+per-site scan over ~250,000 editing sites needs roughly 22 paired
+samples before its permutation floor (2/2^n) clears Bonferroni (~2e-7).
+Six pairs floor at 0.031, three at 0.25.
+[`findDEAlleleFraction()`](https://github.com/cchmc/variantCell/reference/findDEAlleleFraction.md)
+reports that ceiling and **warns when it cannot be cleared**, rather
+than returning a table of hopeful p-values — the same philosophy as
+[`checkGenotypeConcordance()`](https://github.com/cchmc/variantCell/reference/checkGenotypeConcordance.md).
+
+### The unit of observation is the sample, never the cell
+
+Cells within a library share a genome, a capture and a sequencing run.
+Treating 8,154 of them as independent observations is pseudoreplication
+and inflates significance by orders of magnitude — the classic
+single-cell DE failure. Both functions aggregate to pseudobulk first via
+a sparse indicator-matrix product, then test across pseudobulks. A
+regression test asserts that a 10x increase in cell count leaves both
+the index and the attainable p unchanged.
+
+### `common_sites`
+
+Defaults TRUE: within each `split_by` unit, both arms are restricted to
+sites callable in all of that unit’s arms. Without it an index
+difference can be manufactured purely by the two arms using different
+positions.
+
+The index is **read-weighted** (`sum(AD)/sum(DP)`) by default rather
+than a mean of per-site fractions, which is dominated by low-coverage
+sites.
+
+### Tests
+
+`tests/testthat/test-alleleFraction.R` — 26 assertions, deterministic
+fixtures, no RNG. Full suite is now 64 assertions across 3 files.
+
+### What to use it for
+
+The strong designs in this cohort are **within-sample**, because every
+contrast that has failed here failed on between-patient arithmetic.
+Donor vs recipient inside one library is paired, so patient, ancestry,
+chemistry and batch all cancel; cell-type contrasts likewise. Pass
+`within = "cell_type"` for the stratified form.
+
+## New Module - cellsnp-lite Import (08/12/26)
+
+### `R/10-import-cellsnp.R`
+
+[`addSampleData()`](https://github.com/cchmc/variantCell/reference/addSampleData.md) +
+[`buildSNPDatabase()`](https://github.com/cchmc/variantCell/reference/buildSNPDatabase.md)
+is the germline workflow: a cellSNP run paired with vireo donor
+assignments. A run against a **non-germline region list** — RNA editing
+sites, chrM, a candidate panel — has no vireo output, because there is
+no genotype to deconvolve.
+[`buildCellSNPDatabase()`](https://github.com/cchmc/variantCell/reference/buildCellSNPDatabase.md)
+imports those runs directly.
+
+``` r
+
+project <- variantCellFromCellSNP(
+  dirs = file.path("editing_pilot/run", samples), sample_ids = samples,
+  cell_metadata = seurat_meta, identity = "donor_type")
+idx <- project$computeAlleleFractionIndex(within = "cell_type")
+```
+
+Sites are **unioned** across samples, not intersected — different
+samples cover different subsets (436k vs 470k in the pilot). Matrices
+are assembled once from accumulated triplets; cbind-per-sample is
+quadratic and has bitten this package before.
+
+### OTH is carried through, and it matters
+
+At an A\>G site the two remaining bases can only be sequencing error, so
+`OTH/DP` is an **internal, position-matched error floor** for the
+`AD/DP` signal. That comparison is what makes an editing result
+interpretable rather than a plausible artifact — on the pilot it gave
+7.4x (TBX3) and 9.5x (CLAD-2). `qc_report` reports `alt_fraction`,
+`per_base_error_floor` and `signal_to_error`.
+
+### Two bugs found by chasing test warnings
+
+- **Leaked file connections.**
+  [`Matrix::readMM()`](https://rdrr.io/pkg/Matrix/man/externalFormats.html)
+  does not close a connection handed to it. Three leaked per sample
+  against R’s ~128 connection cap would hard-fail a large import long
+  before the GC reclaimed them. Pinned by a regression test.
+- **Pattern matrices.** `writeMM` emits a `pattern` header whenever
+  every stored value is 1, and `readMM` returns that as an `ngTMatrix`
+  with **no `x` slot** — reading `@x` errors out. An OTH matrix from a
+  shallow run really can be all ones. Same failure family as the
+  pattern-matrix alt-fraction defect fixed earlier.
+
+Neither surfaced as a test failure; both showed up only as accumulated
+warnings. **Do not dismiss a clean pass with a warning tail.**
+
+### Tests
+
+`tests/testthat/test-importCellSNP.R` — 34 assertions. Suite is now **98
+across 4 files**. `R CMD check` Status: OK.
+
+### Build note
+
+`R CMD build` needs pandoc for the vignettes and it is not on the shell
+PATH. Prepend RStudio’s bundled copy:
+`/usr/lib/rstudio/resources/app/bin/quarto/bin/tools/x86_64`
+
+## API Cleanup - Internals Made Private (08/12/26)
+
+Six methods were public without being API: `calculate_optimal_range`,
+`calculate_y_positions`, `create_main_plot`, `create_distribution_plots`
+(plotting internals), `process_tsv` (the Vireo TSV reader), and
+`getNumericSubset` — which had **no call sites anywhere**, dead public
+surface.
+
+All moved to `private`, call sites updated to `private$`,
+`man/process_tsv.Rd` removed. Public surface is now **25 members**, all
+deliberate.
+
+## Measured: What SNP-Site Depth Actually Captures (08/12/26)
+
+The claim “Seurat dominates findDESNPs” was asserted for months and
+finally **measured** on 2026-08-12, over the 52,809 cells shared between
+the variantCell project and the merged Seurat object:
+
+|                                       |                                  |
+|---------------------------------------|----------------------------------|
+| genes in Seurat matrix                | 27,765                           |
+| genes with \>=1 covered SNP           | 16,572                           |
+| **genes invisible to the SNP view**   | **11,193 (40.3%)**               |
+| total reads: gene matrix vs SNP sites | 458.0M vs 234.9M = **51.3%**     |
+| capture ratio per gene, median        | **0.202** (75th 0.46, 90th 0.90) |
+| SNPs per gene, median / 99th          | **13 / 307**                     |
+
+**The measurement is not thin** — half of all reads land at SNP
+positions, and well-covered genes retain 90%. The earlier framing (“a
+small fraction of the evidence”) was wrong.
+
+**The domination is a multiple-testing result, not a read-count one.** A
+median gene carries 13 SNPs, so it produces 13 correlated tests of one
+fact, and correction runs over ~739,000 sites instead of ~20,000 genes —
+**37x stricter**. Per test you hold ~1.5% of a gene’s evidence against
+37x the penalty, on 60% of the genes.
+
+So the corrected position, now in the roxygen and `man/findDESNPs.Rd`:
+
+- **Not a genome-wide discovery scan.** Ever.
+- **Legitimate for a targeted gene** — if you already know which gene
+  matters the multiple-testing argument largely evaporates.
+- **Legitimate as the coverage companion** to
+  [`findSNPsByGroup()`](https://github.com/cchmc/variantCell/reference/findSNPsByGroup.md),
+  and as a coverage-comparability check before
+  [`computeAlleleFractionIndex()`](https://github.com/cchmc/variantCell/reference/computeAlleleFractionIndex.md).
+
+**Unexploited and genuinely unique to this data:** depth *ratios between
+sites within one gene* give 3’UTR length / alternative polyadenylation,
+and ~12.5% of sites sit outside annotated genes. Gene counts cannot see
+either. No current function extracts them — `findDESNPs` tests one site
+against groups, not sites against each other. That is the one real gap
+in this area.
+
+## Science Direction (as of 08/12/26)
+
+**What the package is:** a multi-genome single-cell analysis layer on
+top of cellsnp-lite/Vireo, with a transplant-specific identification
+module. It consumes their output and replaces neither.
+`07-donor-inference.R` is the only transplant-specific part — 349 of
+8,364 lines. Everything else applies to any multi-donor experiment.
+
+**Closed. Do not re-open without new data:**
+
+| line | why |
+|----|----|
+| differential germline variants for disease state | genotype is fixed; 4 independent failures |
+| presence/absence across patients | permutation ceiling, min p 0.057 at 3v4 |
+| ASE | censored at the interesting end; needs pure recipient DNA |
+| global editing index vs disease | capped, and ISG score beats it 7/7 vs 6/7 |
+| passenger leukocyte decay | already published |
+| donor-vs-recipient within cell type | 1 of 35 cells has both arms; graft/recipient is confounded with structural/immune |
+
+**Open, ranked:**
+
+1.  **Spatial chimerism** (`CLAD_spatial`, shipped Mar 2026). Directly
+    resolves the airway-restricted recipient epithelium question —
+    sampling artifact vs anastomotic migration. Novel; nobody maps
+    donor/recipient genotype spatially in lung transplant. Blocked on
+    locating the spatial BAMs.
+2.  **Compartment-specific chimerism vs clinical outcome.** One test per
+    hypothesis, so the permutation ceiling does not bite. Clinical
+    metadata is in the two LungChat .docx files. Check first whether the
+    published decay is compartment-resolved.
+3.  **Genotype QC as a standalone utility.**
+    [`checkGenotypeConcordance()`](https://github.com/cchmc/variantCell/reference/checkGenotypeConcordance.md)
+    recovers distinct-genome counts with no patient column, so a
+    mislabelled sample cannot hide. Sample swaps are endemic in
+    multi-donor single-cell work and there is no standard tool. Probably
+    the most broadly citable piece after
+    [`inferDonorType()`](https://github.com/cchmc/variantCell/reference/inferDonorType.md).
+4.  **Cross-individual doublet detection.** Use Vireo’s calls, do not
+    rebuild them — its mixture model is validated and variantCell does
+    not do the clustering. The additive step is using genotype doublets
+    to estimate the *total* doublet rate (inter-individual doublets are
+    2pq of all doublets) and to benchmark scDblFinder against a real
+    labelled set rather than simulation.
+5.  **Recoding sites** — the one remaining differential idea, small
+    enough that per-site testing is affordable under correction.
+    `findDEAlleleFraction(sites=)`.
+
+**Engineering priority, above all of the above:** make the vignettes
+executable. All four are `eval=FALSE` across 24 chunks, so nothing in
+the repo runs the public API end to end. That is the systemic reason
+defects survive here — three of four DE-SNP bugs, plus both import bugs
+found on 08-12, produced wrong output or warnings rather than errors.
+`05-plots.R` is 1,142 lines with no verification of any kind and would
+benefit most.

@@ -51,6 +51,13 @@ group-specific genetic variants.
   depth_reliability). Default: c(0.4, 0.3, 0.3). Weights should sum to
   1.0.
 
+- check_genotype:
+
+  Logical. Whether to measure genotype concordance between the two
+  groups before testing, and warn when the contrast is not a genotype
+  contrast. Default TRUE. See
+  [`checkGenotypeConcordance`](https://github.com/cchmc/variantCell/reference/checkGenotypeConcordance.md).
+
 ## Value
 
 List containing:
@@ -65,6 +72,12 @@ List containing:
 
   List with analysis overview including counts of SNPs present in each
   group and parameters used for filtering.
+
+- genotype_check:
+
+  Result of the genotype concordance guard, when check_genotype = TRUE,
+  so a flagged contrast stays recognisable as flagged when the object is
+  read back later.
 
 ## Details
 

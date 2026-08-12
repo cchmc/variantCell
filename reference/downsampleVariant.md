@@ -78,8 +78,9 @@ structures, including:
 ## See also
 
 [`setProjectIdentity`](https://github.com/cchmc/variantCell/reference/setProjectIdentity.md)
-for setting the grouping identity `subsetvariantCell` for other
-filtering operations
+for setting the grouping identity
+[`subsetVariantCell`](https://github.com/cchmc/variantCell/reference/subsetVariantCell.md)
+for other filtering operations
 
 ## Examples
 

@@ -12,8 +12,13 @@
 <url><loc>https://github.com/cchmc/variantCell/index.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/addSampleData.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/aggregateByGroup.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/annotate_snp_database.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/buildCellSNPDatabase.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/buildSNPDatabase.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/checkGenotypeConcordance.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/computeAlleleFractionIndex.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/downsampleVariant.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/findDEAlleleFraction.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/findDESNPs.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/findSNPsByGroup.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/getCellsForSNPs.html</loc></url>
@@ -22,13 +27,12 @@
 <url><loc>https://github.com/cchmc/variantCell/reference/inferDonorType.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/plotSNPHeatmap.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/plotSNPs.html</loc></url>
-<url><loc>https://github.com/cchmc/variantCell/reference/prioritizeSNPs.html</loc></url>
-<url><loc>https://github.com/cchmc/variantCell/reference/process_tsv.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/process_vireo_dataframe.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/process_vireo_sce.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/process_vireo_seurat.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/setProjectIdentity.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/subsetVariantCell.html</loc></url>
 <url><loc>https://github.com/cchmc/variantCell/reference/variantCell-package.html</loc></url>
+<url><loc>https://github.com/cchmc/variantCell/reference/variantCellFromCellSNP.html</loc></url>
 </urlset>
 

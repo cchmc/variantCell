@@ -74,16 +74,16 @@ for grouping cells after subsetting
 ``` r
 if (FALSE) { # \dontrun{
 # Create a new variantCell object with only T cells (default behavior)
-t_cell_project <- project$subsetvariantCell("cell_type", c("CD4", "CD8", "Treg"))
+t_cell_project <- project$subsetVariantCell("cell_type", c("CD4", "CD8", "Treg"))
 
 # Modify the original project in-place (more memory efficient but irreversible)
-project$subsetvariantCell("patient_id", "Patient1", copy = FALSE)
+project$subsetVariantCell("patient_id", "Patient1", copy = FALSE)
 
 # Create a subset excluding cells from a specific condition
-no_acr_project <- project$subsetvariantCell("condition", "ACR", invert = TRUE)
+no_acr_project <- project$subsetVariantCell("condition", "ACR", invert = TRUE)
 
 # Method chaining example (when using copy=FALSE)
-results <- project$subsetvariantCell("donor_type", "Donor", copy = FALSE)$findDESNPs(
+results <- project$subsetVariantCell("donor_type", "Donor", copy = FALSE)$findDESNPs(
   ident.1 = "T_cells",
   ident.2 = "B_cells"
 )

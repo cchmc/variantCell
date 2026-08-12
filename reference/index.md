@@ -6,10 +6,21 @@
   : Add a sample with SNP data to the variantCell project
 - [`aggregateByGroup`](https://github.com/cchmc/variantCell/reference/aggregateByGroup.md)
   : aggregateByGroup: Group-Level SNP Data Aggregation
+- [`annotate_snp_database()`](https://github.com/cchmc/variantCell/reference/annotate_snp_database.md)
+  : Annotate a SNP database against a reference VCF
+- [`buildCellSNPDatabase()`](https://github.com/cchmc/variantCell/reference/buildCellSNPDatabase.md)
+  : buildCellSNPDatabase: Import cellsnp-lite Output as a SNP Database
 - [`buildSNPDatabase`](https://github.com/cchmc/variantCell/reference/buildSNPDatabase.md)
   : Build a unified SNP database from all samples
+- [`checkGenotypeConcordance()`](https://github.com/cchmc/variantCell/reference/checkGenotypeConcordance.md)
+  : Check whether two cell groups are genetically distinct
+- [`computeAlleleFractionIndex`](https://github.com/cchmc/variantCell/reference/computeAlleleFractionIndex.md)
+  : computeAlleleFractionIndex: Aggregate Alt-Allele Fraction per
+  Pseudobulk
 - [`downsampleVariant`](https://github.com/cchmc/variantCell/reference/downsampleVariant.md)
   : downsampleVariant: Downsample Cells by Group to Balance Cell Numbers
+- [`findDEAlleleFraction`](https://github.com/cchmc/variantCell/reference/findDEAlleleFraction.md)
+  : findDEAlleleFraction: Per-Site Alt-Allele Fraction Between Groups
 - [`findDESNPs`](https://github.com/cchmc/variantCell/reference/findDESNPs.md)
   : findDESNPs: Cell-Level Differential SNP Expression Analysis
 - [`findSNPsByGroup`](https://github.com/cchmc/variantCell/reference/findSNPsByGroup.md)
@@ -26,10 +37,6 @@
   across cell groups
 - [`plotSNPs`](https://github.com/cchmc/variantCell/reference/plotSNPs.md)
   : plotSNPs "Visualize SNP Distribution for a Gene"
-- [`prioritizeSNPs()`](https://github.com/cchmc/variantCell/reference/prioritizeSNPs.md)
-  : prioritizeSNPs: Comprehensive SNP Prioritization
-- [`process_tsv`](https://github.com/cchmc/variantCell/reference/process_tsv.md)
-  : process_tsv: Process a TSV file with prefix addition
 - [`process_vireo_dataframe`](https://github.com/cchmc/variantCell/reference/process_vireo_dataframe.md)
   : process_vireo_dataframe: Integrate Vireo donor assignments with a
   metadata data frame
@@ -43,3 +50,6 @@
   : setProjectIdentity: Set Project-Wide Cell Identity Variable
 - [`subsetVariantCell`](https://github.com/cchmc/variantCell/reference/subsetVariantCell.md)
   : subsetVariantCell: Subset Cells Based on Metadata Values
+- [`variantCellFromCellSNP()`](https://github.com/cchmc/variantCell/reference/variantCellFromCellSNP.md)
+  : variantCellFromCellSNP: Build a variantCell Object from cellsnp-lite
+  Output
