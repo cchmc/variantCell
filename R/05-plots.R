@@ -743,7 +743,7 @@
 #'   if genes is provided instead.
 #' @param group.by Character. Column name in metadata to use for primary grouping of cells.
 #' @param split.by Character, optional. Column name in metadata to use for secondary grouping/splitting.
-#' @param min_alt_frac Numeric [0-1]. Minimum alternative allele fraction required for a SNP to be
+#' @param min_alt_frac Numeric, 0 to 1. Minimum alternative allele fraction required for a SNP to be
 #'   counted as expressed in a cell. Default is 0.2.
 #' @param scale_data Logical. Whether to scale data by row for visualization. Default is TRUE.
 #' @param max_scale Numeric. Maximum value for scaled data (values will be capped at ±max_scale).

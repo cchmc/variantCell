@@ -76,5 +76,5 @@ results <- project$downsampleVariant(max_cells = 300)$findDESNPs(
 }
 \seealso{
 \code{\link{setProjectIdentity}} for setting the grouping identity
-\code{\link{subsetvariantCell}} for other filtering operations
+\code{\link{subsetVariantCell}} for other filtering operations
 }

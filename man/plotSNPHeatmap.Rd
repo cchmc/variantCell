@@ -14,7 +14,7 @@ if genes is provided instead.}
 
 \item{split.by}{Character, optional. Column name in metadata to use for secondary grouping/splitting.}
 
-\item{min_alt_frac}{Numeric \link{0-1}. Minimum alternative allele fraction required for a SNP to be
+\item{min_alt_frac}{Numeric, 0 to 1. Minimum alternative allele fraction required for a SNP to be
 counted as expressed in a cell. Default is 0.2.}
 
 \item{scale_data}{Logical. Whether to scale data by row for visualization. Default is TRUE.}
