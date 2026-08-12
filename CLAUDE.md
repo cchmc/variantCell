@@ -627,3 +627,58 @@ carry stale labels that no longer match the current metadata.
 ## Dependencies
 
 The package integrates with the broader single-cell ecosystem including Seurat, Matrix (sparse matrices), data.table (fast I/O), and standard R statistical functions.
+## New Module - Allele-Fraction Testing (08/12/26)
+
+### `R/09-allele-fraction.R`
+
+The package tested genotype (`findSNPsByGroup`, presence/absence) and read
+depth (`findDESNPs`, transcript abundance). **Neither tested `AD/DP` itself** —
+the fraction of reads carrying the alternative base. That is the statistic for
+anything where the variant lives in the RNA rather than the DNA: A-to-I editing
+rate, allele-specific expression, mtDNA heteroplasmy. The ASE work had to
+hand-roll it.
+
+Two entry points, because they cost very different amounts of statistical power:
+
+| function | tests | multiple-testing burden |
+|---|---|---|
+| `computeAlleleFractionIndex()` | one index per pseudobulk | **none** — a single statistic |
+| `findDEAlleleFraction()` | each site separately | Bonferroni over all sites |
+
+**The index is the one that works at this cohort's group sizes.** A per-site
+scan over ~250,000 editing sites needs roughly 22 paired samples before its
+permutation floor (2/2^n) clears Bonferroni (~2e-7). Six pairs floor at 0.031,
+three at 0.25. `findDEAlleleFraction()` reports that ceiling and **warns when it
+cannot be cleared**, rather than returning a table of hopeful p-values — the
+same philosophy as `checkGenotypeConcordance()`.
+
+### The unit of observation is the sample, never the cell
+
+Cells within a library share a genome, a capture and a sequencing run. Treating
+8,154 of them as independent observations is pseudoreplication and inflates
+significance by orders of magnitude — the classic single-cell DE failure. Both
+functions aggregate to pseudobulk first via a sparse indicator-matrix product,
+then test across pseudobulks. A regression test asserts that a 10x increase in
+cell count leaves both the index and the attainable p unchanged.
+
+### `common_sites`
+
+Defaults TRUE: within each `split_by` unit, both arms are restricted to sites
+callable in all of that unit's arms. Without it an index difference can be
+manufactured purely by the two arms using different positions.
+
+The index is **read-weighted** (`sum(AD)/sum(DP)`) by default rather than a mean
+of per-site fractions, which is dominated by low-coverage sites.
+
+### Tests
+
+`tests/testthat/test-alleleFraction.R` — 26 assertions, deterministic fixtures,
+no RNG. Full suite is now 64 assertions across 3 files.
+
+### What to use it for
+
+The strong designs in this cohort are **within-sample**, because every contrast
+that has failed here failed on between-patient arithmetic. Donor vs recipient
+inside one library is paired, so patient, ancestry, chemistry and batch all
+cancel; cell-type contrasts likewise. Pass `within = "cell_type"` for the
+stratified form.
