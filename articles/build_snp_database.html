@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -62,7 +62,6 @@
                         <h4 data-toc-skip class="author">Andrew
 Potter</h4>
             
-            <h4 data-toc-skip class="date">2025-05-12</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/cchmc/variantCell/blob/main/vignettes/build_snp_database.Rmd"><code>vignettes/build_snp_database.Rmd</code></a></small>
       <div class="d-none name"><code>build_snp_database.Rmd</code></div>
@@ -70,73 +69,239 @@ Potter</h4>
 
     
     
-<div class="section level2">
-<h2 id="creating-a-new-variantcell-project">Creating a new variantCell project<a class="anchor" aria-label="anchor" href="#creating-a-new-variantcell-project"></a>
-</h2>
-<p>If you haven’t already done so, you can create a new project by using
-the command:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co">#Create new variantCell object</span></span>
-<span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-<p>to initialize the project.</p>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/cchmc/variantCell">variantCell</a></span><span class="op">)</span></span></code></pre></div>
+<div class="section level2">
+<h2 id="what-this-vignette-needs">What this vignette needs<a class="anchor" aria-label="anchor" href="#what-this-vignette-needs"></a>
+</h2>
+<p>variantCell sits on top of two upstream tools and replaces
+neither:</p>
+<ul>
+<li>
+<strong>cellsnp-lite</strong>, which counts reference and
+alternative reads per cell at a list of variant positions, and</li>
+<li>
+<strong>Vireo</strong>, which clusters those counts into genotypes
+and assigns each cell to a genome.</li>
+</ul>
+<p>Every function here consumes their output. So that this vignette
+actually runs, <code><a href="../reference/simulateVariantCellData.html">simulateVariantCellData()</a></code> writes a synthetic
+experiment in exactly the layout a real run produces —
+<code>cellSNP.base.vcf</code>, <code>cellSNP.samples.tsv</code>, the
+AD/DP/OTH MatrixMarket matrices, and one <code>donor_ids.tsv</code> per
+sample.</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">sim</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulateVariantCellData.html">simulateVariantCellData</a></span><span class="op">(</span>verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files</a></span><span class="op">(</span><span class="va">sim</span><span class="op">$</span><span class="va">cellsnp_paths</span><span class="op">[[</span><span class="st">"S1"</span><span class="op">]</span><span class="op">]</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "cellSNP.base.vcf"    "cellSNP.samples.tsv" "cellSNP.tag.AD.mtx" </span></span>
+<span><span class="co">#&gt; [4] "cellSNP.tag.DP.mtx"  "cellSNP.tag.OTH.mtx"</span></span></code></pre></div>
+<p>Five libraries, two genetically distinct individuals in each. Two of
+them (<code>S1</code>, <code>S2</code>) are repeat biopsies of the same
+patient, which will matter later.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">sim</span><span class="op">$</span><span class="va">design</span></span>
+<span><span class="co">#&gt;   sample patient condition</span></span>
+<span><span class="co">#&gt; 1     S1      P1 Rejection</span></span>
+<span><span class="co">#&gt; 2     S2      P1 Rejection</span></span>
+<span><span class="co">#&gt; 3     S3      P2 Rejection</span></span>
+<span><span class="co">#&gt; 4     S4      P3    Stable</span></span>
+<span><span class="co">#&gt; 5     S5      P4    Stable</span></span></code></pre></div>
+<p>The cell metadata is an ordinary data frame whose <strong>row names
+are the prefixed cell IDs</strong>. In a real analysis this is your
+Seurat or SingleCellExperiment metadata.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="co">#&gt;                                  Barcode Biopsy patient condition</span></span>
+<span><span class="co">#&gt; S1_AAGCCCTATTGGGTAG-1 AAGCCCTATTGGGTAG-1     S1      P1 Rejection</span></span>
+<span><span class="co">#&gt; S1_ATAACCCACCGTTTGT-1 ATAACCCACCGTTTGT-1     S1      P1 Rejection</span></span>
+<span><span class="co">#&gt; S1_GGGCGGGTGAACTGCT-1 GGGCGGGTGAACTGCT-1     S1      P1 Rejection</span></span>
+<span><span class="co">#&gt;                                cell_type compartment</span></span>
+<span><span class="co">#&gt; S1_AAGCCCTATTGGGTAG-1           Ciliated  Epithelial</span></span>
+<span><span class="co">#&gt; S1_ATAACCCACCGTTTGT-1           Ciliated  Epithelial</span></span>
+<span><span class="co">#&gt; S1_GGGCGGGTGAACTGCT-1 Classical Monocyte     Myeloid</span></span></code></pre></div>
+<blockquote>
+<p>The simulated data is deliberately denser than a real 10x run —
+roughly half the site-by-cell entries are non-zero, against a few
+percent in practice — so that a small example still has enough coverage
+to demonstrate every function. Cell counts and site counts are
+correspondingly small.</p>
+</blockquote>
 </div>
 <div class="section level2">
-<h2 id="building-the-snp-database">Building the SNP database<a class="anchor" aria-label="anchor" href="#building-the-snp-database"></a>
+<h2 id="creating-a-project">Creating a project<a class="anchor" aria-label="anchor" href="#creating-a-project"></a>
 </h2>
-<p>To build the SNP database, first you need to add each sample
-individually, optionally specifying donor and recipient (please see
-tutorial for identifying donor/recipient).</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># add one sample to SNP database</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>  addSampleData <span class="ot">=</span> <span class="cf">function</span>(</span>
-<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>    sample_id,</span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>    <span class="at">vireo_path          =</span> <span class="cn">NULL</span>,</span>
-<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>    cellsnp_path,</span>
-<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>    cell_data,</span>
-<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>    <span class="at">data_type           =</span> <span class="st">"seurat"</span>,</span>
-<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>    prefix_text,</span>
-<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>    <span class="at">donor_type          =</span> <span class="cn">NULL</span>,</span>
-<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>    <span class="at">non_transplant_mode =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a>    <span class="at">min_cells           =</span> <span class="dv">0</span>,</span>
-<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>    <span class="at">min_alt_frac        =</span> <span class="dv">0</span>,</span>
-<span id="cb2-13"><a href="#cb2-13" tabindex="-1"></a>    <span class="at">normalize           =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb2-14"><a href="#cb2-14" tabindex="-1"></a>    <span class="at">scale.factor        =</span> <span class="dv">10000</span>,</span>
-<span id="cb2-15"><a href="#cb2-15" tabindex="-1"></a>    <span class="at">sample_metadata     =</span> <span class="cn">NULL</span></span>
-<span id="cb2-16"><a href="#cb2-16" tabindex="-1"></a>  ) </span></code></pre></div>
-<p>This is an example, setting donor and recipient (for transplant
-mode):</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># usage example</span></span>
-<span></span>
-<span>    <span class="va">project</span><span class="op">$</span><span class="fu">addSampleData</span><span class="op">(</span></span>
-<span>      sample_id    <span class="op">=</span> <span class="st">"Sample1"</span>,</span>
-<span>      vireo_path   <span class="op">=</span> <span class="st">"/path/to/donor_ids.tsv"</span>,</span>
-<span>      cellsnp_path <span class="op">=</span> <span class="st">"/path/to/cellSNP/dir/"</span>,</span>
-<span>      cell_data    <span class="op">=</span> <span class="va">seuratObj</span>,</span>
-<span>      data_type    <span class="op">=</span> <span class="st">'seurat'</span>,</span>
-<span>      prefix_text  <span class="op">=</span> <span class="st">"Patient1_Sample1_"</span>,</span>
-<span>      normalize    <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>      donor_type   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>donor0 <span class="op">=</span> <span class="st">"Donor"</span>, donor1 <span class="op">=</span> <span class="st">"Recipient"</span><span class="op">)</span></span>
-<span>    <span class="op">)</span></span></code></pre></div>
-<p>For initial analysis, it is recommended not to perform any filtering
-(min_cells=0, min_alt_frac=0) as this will help facilitate downstream DE
-analysis and plotting. If normalize is set to TRUE, size factor
-normalization is performed, using total DP (SNP counts) for each cell.
-Downstream analysis can then optionally use the normalized SNP
-counts.</p>
-<p>After the samples have been added, you can build a unified SNP
-database by executing the function: <code><a href="../reference/buildSNPDatabase.html">buildSNPDatabase()</a></code></p>
-<div class="section level4">
-<h4 id="basic-usage">Basic usage:<a class="anchor" aria-label="anchor" href="#basic-usage"></a>
-</h4>
-<p><code>vCell_project$buildSNPDatabase()</code></p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level4">
-<h4 id="with-rs-identifier-annotation">With rs# identifier annotation:<a class="anchor" aria-label="anchor" href="#with-rs-identifier-annotation"></a>
-</h4>
-<p>To include rs# identifiers from a reference VCF file (e.g., 1000
-Genomes), use: ```r vCell_project$buildSNPDatabase( add_rs_ids = TRUE,
-VCF_file_path = “path/to/reference.vcf” )</p>
+<div class="section level2">
+<h2 id="adding-samples">Adding samples<a class="anchor" aria-label="anchor" href="#adding-samples"></a>
+</h2>
+<p><code><a href="../reference/addSampleData.html">addSampleData()</a></code> reads one sample’s cellsnp matrices,
+matches barcodes against your cell metadata, applies the Vireo donor
+assignment, and stores the result.</p>
+<p>The <code>donor_type</code> argument maps Vireo’s cluster labels onto
+meaningful names. <strong>Do not hard-code it.</strong> Vireo’s
+<code>donor0</code> / <code>donor1</code> labels are arbitrary and are
+reassigned on every run — see the donor/recipient vignette, which covers
+this in full. Infer the mapping from the data instead:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/inferDonorType.html">inferDonorType</a></span><span class="op">(</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span>, vireo_dir <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_dir</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="st">"S1"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="co">#&gt;      donor0      donor1 </span></span>
+<span><span class="co">#&gt; "Recipient"     "Donor"</span></span>
+<span><span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="st">"S3"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="co">#&gt;      donor0      donor1 </span></span>
+<span><span class="co">#&gt;     "Donor" "Recipient"</span></span></code></pre></div>
+<p>Those two are not the same mapping, which is the whole point.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw">for</span> <span class="op">(</span><span class="va">s</span> <span class="kw">in</span> <span class="va">sim</span><span class="op">$</span><span class="va">design</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="fu">addSampleData</span><span class="op">(</span></span>
+<span>    sample_id    <span class="op">=</span> <span class="va">s</span>,</span>
+<span>    vireo_path   <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cellsnp_path <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">cellsnp_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cell_data    <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">[</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">$</span><span class="va">Biopsy</span> <span class="op">==</span> <span class="va">s</span>, <span class="op">]</span>,</span>
+<span>    data_type    <span class="op">=</span> <span class="st">"dataframe"</span>,</span>
+<span>    prefix_text  <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">prefixes</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    donor_type   <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">project</span><span class="op">$</span><span class="va">samples</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "S1" "S2" "S3" "S4" "S5"</span></span></code></pre></div>
+<p>A few notes on the arguments:</p>
+<ul>
+<li>
+<code>data_type</code> is <code>"seurat"</code>, <code>"sce"</code>
+or <code>"dataframe"</code>. For a data frame, <code>vireo_path</code>
+points at the <code>donor_ids.tsv</code> <strong>file</strong>, not its
+directory, and row names must equal <code>prefix_text</code> +
+barcode.</li>
+<li>
+<code>prefix_text</code> is stripped from your cell names to recover
+the plain barcode that cellsnp-lite wrote. Derive it by removing the
+barcode from an existing cell name rather than rebuilding it from
+metadata columns — cell names in a merged object are fixed at merge time
+and can carry stale labels.</li>
+<li>For a first pass, leave <code>min_cells = 0</code> and
+<code>min_alt_frac = 0</code>. Filtering early discards sites that
+downstream plotting and DE need.</li>
+<li>
+<code>non_transplant_mode = TRUE</code> skips Vireo entirely, for a
+single-genome experiment.</li>
+</ul>
 </div>
+<div class="section level2">
+<h2 id="building-the-unified-database">Building the unified database<a class="anchor" aria-label="anchor" href="#building-the-unified-database"></a>
+</h2>
+<p><code><a href="../reference/buildSNPDatabase.html">buildSNPDatabase()</a></code> takes the union of sites across
+samples, annotates them against <code>EnsDb.Hsapiens.v86</code>, and
+assembles one matrix per quantity.</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">db</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">dp_matrix</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 1994  800</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">db</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "ad_matrix"            "dp_matrix"            "dp_matrix_normalized"</span></span>
+<span><span class="co">#&gt; [4] "cell_metadata"        "snp_info"             "snp_annotations"     </span></span>
+<span><span class="co">#&gt; [7] "snp_metrics"          "qc_report"</span></span></code></pre></div>
+<p>Sites are <strong>unioned</strong>, not intersected — different
+samples cover different positions, and requiring a site in every sample
+would discard most of them.</p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">snp_info</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="co">#&gt;      CHROM      POS REF ALT         snp_id rs_id population_AF</span></span>
+<span><span class="co">#&gt; S1.1     1 27666066   A   T 1_27666066_A_T  &lt;NA&gt;            NA</span></span>
+<span><span class="co">#&gt; S1.2     1 27666069   T   A 1_27666069_T_A  &lt;NA&gt;            NA</span></span>
+<span><span class="co">#&gt; S1.3     1 27666071   G   T 1_27666071_G_T  &lt;NA&gt;            NA</span></span></code></pre></div>
+<p>Annotation lands in <code>snp_metrics</code>, which is where the gene
+name lives:</p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">snp_metrics</span><span class="op">$</span><span class="va">feature_type</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; exonic </span></span>
+<span><span class="co">#&gt;   1994</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sort.html" class="external-link">sort</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">snp_metrics</span><span class="op">$</span><span class="va">gene_name</span><span class="op">)</span>, decreasing <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>, <span class="fl">5</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;  CLDN5    DCN   FCN1   JAK1 PECAM1 </span></span>
+<span><span class="co">#&gt;    180    180    180    180    180</span></span></code></pre></div>
+<p>The cell metadata carries everything you supplied plus the columns
+variantCell adds — <code>sample_id</code>, <code>donor_id</code>,
+<code>donor_type</code>:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">)</span></span>
+<span><span class="co">#&gt;  [1] "cell_id"     "sample_id"   "donor_id"    "donor_type"  "Barcode"    </span></span>
+<span><span class="co">#&gt;  [6] "Biopsy"      "patient"     "condition"   "cell_type"   "compartment"</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">donor_type</span>, <span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">compartment</span><span class="op">)</span></span>
+<span><span class="co">#&gt;            </span></span>
+<span><span class="co">#&gt;             Endothelial Epithelial Lymphoid Myeloid Stromal</span></span>
+<span><span class="co">#&gt;   Donor              60        207       23      11      56</span></span>
+<span><span class="co">#&gt;   Recipient           8         19      239     161       6</span></span></code></pre></div>
+<p>That table is the single most important property of transplant data:
+the graft supplies structural cells and the recipient supplies immune
+cells, almost completely. It is what makes donor inference reliable —
+and it is also why phenotypic donor-versus-recipient comparisons are
+largely unavailable, since the two genomes rarely coexist within one
+cell type.</p>
+</div>
+<div class="section level2">
+<h2 id="setting-an-identity">Setting an identity<a class="anchor" aria-label="anchor" href="#setting-an-identity"></a>
+</h2>
+<p>Most analysis functions work off a project-wide identity column:</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">setProjectIdentity</span><span class="op">(</span><span class="st">"compartment"</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">getCurrentIdentity</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Current identity: compartment</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Cell distribution:</span></span>
+<span><span class="co">#&gt;   Endothelial: 68 cells</span></span>
+<span><span class="co">#&gt;   Epithelial: 229 cells</span></span>
+<span><span class="co">#&gt;   Lymphoid: 265 cells</span></span>
+<span><span class="co">#&gt;   Myeloid: 175 cells</span></span>
+<span><span class="co">#&gt;   Stromal: 63 cells</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="adding-rs-ids-and-population-allele-frequencies">Adding rs IDs and population allele frequencies<a class="anchor" aria-label="anchor" href="#adding-rs-ids-and-population-allele-frequencies"></a>
+</h2>
+<p>If you have a reference VCF — 1000 Genomes, gnomAD —
+<code><a href="../reference/buildSNPDatabase.html">buildSNPDatabase()</a></code> can attach rs identifiers and population
+allele frequencies:</p>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span></span>
+<span>  add_rs_ids        <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  add_population_AF <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  VCF_file_path     <span class="op">=</span> <span class="st">"path/to/genome1K.phase3.SNP_AF5e2.chr1toX.hg38.vcf"</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>This chunk is not evaluated because it needs a multi-gigabyte
+reference file that cannot ship with the package. Everything else in
+this vignette runs.</p>
+<p>Note what such a panel implies: if you called variants against a
+common-variant reference, <strong>every site in your database is common
+by construction</strong>. Nothing rare, and nothing high-penetrance.
+That is a property of the panel, not of the method — cellsnp-lite will
+run against any region list, which is what
+<code><a href="../reference/buildCellSNPDatabase.html">buildCellSNPDatabase()</a></code> exists to import.</p>
+</div>
+<div class="section level2">
+<h2 id="next">Next<a class="anchor" aria-label="anchor" href="#next"></a>
+</h2>
+<ul>
+<li>
+<strong>Determining donor and recipient cells</strong> — why the
+Vireo labels must be re-inferred every run.</li>
+<li>
+<strong>Cell-level DE SNP analysis</strong> —
+<code><a href="../reference/findDESNPs.html">findDESNPs()</a></code>, and what it does and does not measure.</li>
+<li>
+<strong>Group-level DE SNP analysis</strong> —
+<code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code>, and the genotype guard that decides
+whether your contrast is answerable at all.</li>
+</ul>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

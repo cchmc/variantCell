@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -62,7 +62,6 @@
                         <h4 data-toc-skip class="author">Andrew
 Potter</h4>
             
-            <h4 data-toc-skip class="date">2025-05-12</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/cchmc/variantCell/blob/main/vignettes/cell_level_DE.Rmd"><code>vignettes/cell_level_DE.Rmd</code></a></small>
       <div class="d-none name"><code>cell_level_DE.Rmd</code></div>
@@ -70,93 +69,335 @@ Potter</h4>
 
     
     
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/cchmc/variantCell">variantCell</a></span><span class="op">)</span></span></code></pre></div>
 <div class="section level2">
-<h2 id="cell-level-de-snp-analysis">Cell-level DE SNP Analysis<a class="anchor" aria-label="anchor" href="#cell-level-de-snp-analysis"></a>
+<h2 id="what-finddesnps-actually-measures">What <code>findDESNPs()</code> actually measures<a class="anchor" aria-label="anchor" href="#what-finddesnps-actually-measures"></a>
 </h2>
-<p>Cell-level differential SNP analysis focuses on identifying
-differential SNP expression between cell clusters.</p>
-<div class="section level3">
-<h3 id="find-de-snps-between-cell-clusters">Find DE SNPs between cell clusters<a class="anchor" aria-label="anchor" href="#find-de-snps-between-cell-clusters"></a>
-</h3>
-<p>To perform cell-level DE SNP analysis, use the findDESNPs
-function:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co">#Set up project</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a></span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="co"># Creat variantCell object (if you haven't already done so)</span></span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>\dontrun{</span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>  <span class="co"># Initialize a variantCell project</span></span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>  project <span class="ot">&lt;-</span> variantCell<span class="sc">$</span><span class="fu">new</span>()</span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>  </span>
-<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>  <span class="co"># In practice, you would add samples and build the database first</span></span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>  <span class="co"># project$addSampleData(...)</span></span>
-<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>  <span class="co"># project$buildSNPDatabase()</span></span>
-<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>  <span class="co"># project$setProjectIdentity("cell_type")</span></span></code></pre></div>
+<p>Read this before using it.</p>
+<p><code><a href="../reference/findDESNPs.html">findDESNPs()</a></code> compares <strong>read depth at a variant
+position</strong> between cell groups. Depth at a position is the
+abundance of the transcript containing it — so this is an expression
+test, not a genotype test. Germline genotype is fixed within an
+individual and cannot differ between that individual’s cell types.</p>
+<p>The measurement is real and correctly computed. The question is
+whether it is the best available instrument, and mostly it is not.
+Measured on 52,809 cells of a lung transplant cohort against the matched
+gene count matrix:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<tbody>
+<tr class="odd">
+<td>reads captured at SNP positions</td>
+<td>
+<strong>51.3%</strong> of the gene matrix</td>
+</tr>
+<tr class="even">
+<td>expressed genes with no covered SNP</td>
+<td><strong>40.3%</strong></td>
+</tr>
+<tr class="odd">
+<td>median gene: reads retained</td>
+<td>20% (well-covered genes up to 90%)</td>
+</tr>
+<tr class="even">
+<td>median gene: SNPs carried</td>
+<td><strong>13</strong></td>
+</tr>
+<tr class="odd">
+<td>correction burden</td>
+<td>~739,000 sites vs ~20,000 genes = <strong>37× stricter</strong>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The coverage is not thin — half of all reads land at SNP positions.
+The problem is arithmetic: per test you hold roughly 1.5% of a gene’s
+evidence while paying 37 times the multiple-testing penalty, on 60% of
+the genes. <strong>Seurat’s <code>FindMarkers()</code> on the gene count
+matrix strictly dominates this for “which genes differ between these
+cell groups.”</strong></p>
+<p>Use <code><a href="../reference/findDESNPs.html">findDESNPs()</a></code> for:</p>
+<ul>
+<li>
+<strong>A specific gene you already care about.</strong> The
+multiple-testing argument largely evaporates once you are not
+scanning.</li>
+<li>
+<strong>The coverage companion to
+<code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code></strong> — confirming depth was adequate
+in the group where a variant was called absent, since otherwise “absent”
+only means “not detected”.</li>
+<li>
+<strong>Checking coverage comparability</strong> before comparing
+allele fractions, since differential depth creates differential
+power.</li>
+</ul>
+</div>
+<div class="section level2">
+<h2 id="setup">Setup<a class="anchor" aria-label="anchor" href="#setup"></a>
+</h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co">#Set metadata column as identity</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">setProjectIdentity</span><span class="op">(</span><span class="st">"cell_type"</span><span class="op">)</span></span></code></pre></div>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co">#find DE SNPs between cell clusters</span></span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>findDESNPs <span class="ot">=</span> <span class="cf">function</span>(ident<span class="fl">.1</span>, </span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>                      <span class="at">ident.2 =</span> <span class="cn">NULL</span>,</span>
-<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>                      <span class="at">donor_type =</span> <span class="cn">NULL</span>,</span>
-<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>                      <span class="at">use_normalized =</span> <span class="cn">TRUE</span>,    </span>
-<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>                      <span class="at">min_expr_cells =</span> <span class="dv">3</span>,        </span>
-<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>                      <span class="at">min_alt_frac =</span> <span class="fl">0.2</span>,        </span>
-<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>                      <span class="at">logfc.threshold =</span> <span class="fl">0.1</span>,     </span>
-<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>                      <span class="at">calc_p =</span> <span class="cn">TRUE</span>,             </span>
-<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>                      <span class="at">p.adjust.method =</span> <span class="st">"BH"</span>,</span>
-<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>                      <span class="at">return_all =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>                      <span class="at">pseudocount =</span> <span class="dv">1</span>,           </span>
-<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>                      <span class="at">min.p =</span> <span class="fl">1e-300</span>,</span>
-<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>                      <span class="at">debug =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>                      <span class="at">n_cores =</span> <span class="cn">NULL</span>)</span>
-<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a><span class="er">}</span></span></code></pre></div>
-<p>Usage example:</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co">#find DE SNPs between Trm and all others</span></span>
-<span><span class="va">DE_results</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">findDESNPs</span><span class="op">(</span></span>
-<span>  ident.1        <span class="op">=</span> <span class="st">"Trm"</span>,</span>
-<span>  use_normalized <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_cores        <span class="op">=</span> <span class="fl">15</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<p><code>ident.1</code> is mandatory, while <code>ident.2</code> can
-optionally be used to compare to a second identity. Use the
-<code>n_cores</code> parameter to set how many processing cores will be
-used.</p>
-<p>A dataframe will be returned with the DE SNP results.</p>
-</div>
+<code class="sourceCode R"><span><span class="va">sim</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulateVariantCellData.html">simulateVariantCellData</a></span><span class="op">(</span>verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="va">inf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/inferDonorType.html">inferDonorType</a></span><span class="op">(</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span>, vireo_dir <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_dir</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">s</span> <span class="kw">in</span> <span class="va">sim</span><span class="op">$</span><span class="va">design</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="fu">addSampleData</span><span class="op">(</span></span>
+<span>    sample_id    <span class="op">=</span> <span class="va">s</span>,</span>
+<span>    vireo_path   <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cellsnp_path <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">cellsnp_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cell_data    <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">[</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">$</span><span class="va">Biopsy</span> <span class="op">==</span> <span class="va">s</span>, <span class="op">]</span>,</span>
+<span>    data_type    <span class="op">=</span> <span class="st">"dataframe"</span>,</span>
+<span>    prefix_text  <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">prefixes</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    donor_type   <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">project</span><span class="op">$</span><span class="fu">setProjectIdentity</span><span class="op">(</span><span class="st">"compartment"</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">compartment</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Endothelial  Epithelial    Lymphoid     Myeloid     Stromal </span></span>
+<span><span class="co">#&gt;          68         229         265         175          63</span></span></code></pre></div>
+<p>The simulator gave each gene a known depth difference between immune
+and structural cells, so there is a right answer to compare against.</p>
 </div>
 <div class="section level2">
-<h2 id="visualizing-de-snp-expression-in-cell-clusters">Visualizing DE SNP Expression in Cell Clusters<a class="anchor" aria-label="anchor" href="#visualizing-de-snp-expression-in-cell-clusters"></a>
+<h2 id="running-the-test">Running the test<a class="anchor" aria-label="anchor" href="#running-the-test"></a>
 </h2>
-<p>A heatmap can be generated illustrating DE SNP expression (requires
-ComplexHeatMap and circlize):</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="co">#plot SNPs in heatmap</span></span>
-<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>    plotSNPHeatmap <span class="ot">=</span> <span class="cf">function</span>(</span>
-<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>                                  <span class="at">genes =</span> <span class="cn">NULL</span>,</span>
-<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>                                  <span class="at">snp_indices =</span> <span class="cn">NULL</span>,</span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a>                                  group.by,</span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a>                                  <span class="at">split.by =</span> <span class="cn">NULL</span>,</span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a>                                  <span class="at">min_alt_frac =</span> <span class="fl">0.2</span>,</span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>                                  <span class="at">scale_data =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a>                                  <span class="at">max_scale =</span> <span class="dv">2</span>,</span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a>                                  <span class="at">cluster_rows =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a>                                  <span class="at">cluster_cols =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a>                                  <span class="at">show_rownames =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a>                                  <span class="at">show_colnames =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a>                                  <span class="at">fontsize_row =</span> <span class="dv">8</span>,</span>
-<span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a>                                  <span class="at">fontsize_col =</span> <span class="dv">8</span>,</span>
-<span id="cb5-16"><a href="#cb5-16" tabindex="-1"></a>                                  <span class="at">exclude_empty =</span> <span class="cn">TRUE</span>,  </span>
-<span id="cb5-17"><a href="#cb5-17" tabindex="-1"></a>                                  <span class="at">normalize_by_cells =</span> <span class="cn">TRUE</span>,  </span>
-<span id="cb5-18"><a href="#cb5-18" tabindex="-1"></a>                                  <span class="at">data_out =</span> <span class="cn">FALSE</span>  </span>
-<span id="cb5-19"><a href="#cb5-19" tabindex="-1"></a>                   ) </span></code></pre></div>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co">#plot JAK1 SNPs in heatmap (entire dataset) - using 'simple' idents</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPHeatmap</span><span class="op">(</span></span>
-<span>  genes        <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"JAK1"</span><span class="op">)</span>,</span>
-<span>  group.by     <span class="op">=</span> <span class="st">"Idents.Simple"</span>,</span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span></span>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">findDESNPs</span><span class="op">(</span></span>
+<span>  ident.1 <span class="op">=</span> <span class="st">"Myeloid"</span>,</span>
+<span>  ident.2 <span class="op">=</span> <span class="st">"Epithelial"</span>,</span>
+<span>  n_cores <span class="op">=</span> <span class="fl">2</span></span>
 <span><span class="op">)</span></span></code></pre></div>
-<p><img src="heatmap_JAK1.png"></p>
+<p><code><a href="../reference/findDESNPs.html">findDESNPs()</a></code> returns a <strong>list</strong>, not a data
+frame:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">res</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "results" "summary"</span></span>
+<span><span class="va">de</span> <span class="op">&lt;-</span> <span class="va">res</span><span class="op">$</span><span class="va">results</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">de</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 1663   22</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">de</span><span class="op">)</span></span>
+<span><span class="co">#&gt;  [1] "snp_idx"         "chromosome"      "position"        "ref"            </span></span>
+<span><span class="co">#&gt;  [5] "alt"             "feature_type"    "gene_name"       "gene_type"      </span></span>
+<span><span class="co">#&gt;  [9] "log2fc"          "avg_expr_group1" "avg_expr_group2" "total_cells_1"  </span></span>
+<span><span class="co">#&gt; [13] "total_cells_2"   "expr_cells_1"    "expr_cells_2"    "expr_frac_1"    </span></span>
+<span><span class="co">#&gt; [17] "expr_frac_2"     "mean_alt_frac_1" "mean_alt_frac_2" "pvalue"         </span></span>
+<span><span class="co">#&gt; [21] "padj"            "percent_change"</span></span></code></pre></div>
+<p>Note the column names: <code>log2fc</code>, <code>pvalue</code>,
+<code>padj</code> — not the Seurat spellings.</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">top</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">de</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/order.html" class="external-link">order</a></span><span class="op">(</span><span class="va">de</span><span class="op">$</span><span class="va">padj</span>, <span class="op">-</span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="va">de</span><span class="op">$</span><span class="va">log2fc</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>               <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"gene_name"</span>, <span class="st">"position"</span>, <span class="st">"log2fc"</span>, <span class="st">"padj"</span>,</span>
+<span>                 <span class="st">"expr_frac_1"</span>, <span class="st">"expr_frac_2"</span><span class="op">)</span><span class="op">]</span>, <span class="fl">8</span><span class="op">)</span></span>
+<span><span class="va">top</span></span>
+<span><span class="co">#&gt;                 gene_name  position    log2fc          padj expr_frac_1</span></span>
+<span><span class="co">#&gt; 9_134909428_C_A      FCN1 134909428 0.6810829 4.568681e-300   0.7828571</span></span>
+<span><span class="co">#&gt; 9_134908470_G_C      FCN1 134908470 0.6734167 4.568681e-300   0.9657143</span></span>
+<span><span class="co">#&gt; 9_134906576_A_G      FCN1 134906576 0.6626048 4.568681e-300   0.1885714</span></span>
+<span><span class="co">#&gt; 9_134909577_G_C      FCN1 134909577 0.6517470 4.568681e-300   0.2571429</span></span>
+<span><span class="co">#&gt; 9_134908492_T_C      FCN1 134908492 0.6499112 4.568681e-300   0.9085714</span></span>
+<span><span class="co">#&gt; 9_134907449_G_C      FCN1 134907449 0.6493934 4.568681e-300   0.4857143</span></span>
+<span><span class="co">#&gt; 9_134909386_T_G      FCN1 134909386 0.6449355 4.568681e-300   0.4000000</span></span>
+<span><span class="co">#&gt; 9_134907342_C_T      FCN1 134907342 0.6405497 4.568681e-300   0.7657143</span></span>
+<span><span class="co">#&gt;                 expr_frac_2</span></span>
+<span><span class="co">#&gt; 9_134909428_C_A   0.4716157</span></span>
+<span><span class="co">#&gt; 9_134908470_G_C   0.4235808</span></span>
+<span><span class="co">#&gt; 9_134906576_A_G   0.1135371</span></span>
+<span><span class="co">#&gt; 9_134909577_G_C   0.3187773</span></span>
+<span><span class="co">#&gt; 9_134908492_T_C   0.4192140</span></span>
+<span><span class="co">#&gt; 9_134907449_G_C   0.1135371</span></span>
+<span><span class="co">#&gt; 9_134909386_T_G   0.2401747</span></span>
+<span><span class="co">#&gt; 9_134907342_C_T   0.4148472</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="does-it-recover-the-truth">Does it recover the truth?<a class="anchor" aria-label="anchor" href="#does-it-recover-the-truth"></a>
+</h2>
+<p>Aggregate to the gene level and compare against the depth shift the
+simulator built in:</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">obs</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/tapply.html" class="external-link">tapply</a></span><span class="op">(</span><span class="va">de</span><span class="op">$</span><span class="va">log2fc</span>, <span class="va">de</span><span class="op">$</span><span class="va">gene_name</span>, <span class="va">median</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span><span class="va">truth</span> <span class="op">&lt;-</span> <span class="va">sim</span><span class="op">$</span><span class="va">sites</span><span class="op">$</span><span class="va">immune_log2</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">obs</span><span class="op">)</span>, <span class="va">sim</span><span class="op">$</span><span class="va">sites</span><span class="op">$</span><span class="va">gene</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="va">cmp</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>gene <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">obs</span><span class="op">)</span>,</span>
+<span>                  observed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">obs</span><span class="op">)</span>, <span class="fl">2</span><span class="op">)</span>,</span>
+<span>                  simulated <span class="op">=</span> <span class="va">truth</span><span class="op">)</span></span>
+<span><span class="va">cmp</span> <span class="op">&lt;-</span> <span class="va">cmp</span><span class="op">[</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">cmp</span><span class="op">$</span><span class="va">simulated</span><span class="op">)</span>, <span class="op">]</span></span>
+<span><span class="va">cmp</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/order.html" class="external-link">order</a></span><span class="op">(</span><span class="va">cmp</span><span class="op">$</span><span class="va">simulated</span><span class="op">)</span>, <span class="op">]</span></span>
+<span><span class="co">#&gt;       gene observed simulated</span></span>
+<span><span class="co">#&gt; 12   SFTPC    -1.01      -2.5</span></span>
+<span><span class="co">#&gt; 11 SCGB1A1    -0.87      -2.0</span></span>
+<span><span class="co">#&gt; 2    CLDN5    -0.70      -1.8</span></span>
+<span><span class="co">#&gt; 4      DCN    -0.70      -1.6</span></span>
+<span><span class="co">#&gt; 9   PECAM1    -0.64      -1.4</span></span>
+<span><span class="co">#&gt; 14     VIM    -0.21       0.0</span></span>
+<span><span class="co">#&gt; 7     JAK1    -0.16       0.2</span></span>
+<span><span class="co">#&gt; 6     IFI6    -0.13       0.4</span></span>
+<span><span class="co">#&gt; 8    MARCO     0.37       1.4</span></span>
+<span><span class="co">#&gt; 5     FCN1     0.55       2.0</span></span>
+<span><span class="co">#&gt; 1     CD74     0.52       2.2</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span><span class="va">cmp</span><span class="op">$</span><span class="va">observed</span>, <span class="va">cmp</span><span class="op">$</span><span class="va">simulated</span><span class="op">)</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 0.995</span></span></code></pre></div>
+<p>The ordering is recovered almost exactly. Two things are worth
+noticing.</p>
+<p><strong>The magnitudes are compressed.</strong> With
+<code>use_normalized = TRUE</code> (the default), depth is size-factor
+normalised and <code>log1p</code>-transformed, so a fold change on that
+scale is much smaller than the underlying count ratio. Treat
+<code>log2fc</code> as an ordering, not as a count ratio.</p>
+<p><strong>A truly null gene does not come back at zero.</strong>
+<code>VIM</code> was simulated with no difference at all, yet reads as
+mildly depleted in myeloid cells. That is compositional normalisation
+working correctly: immune cells carry far more <code>CD74</code>,
+<code>FCN1</code> and <code>VCAN</code> reads, which inflates their size
+factors and pushes everything else down. The same effect exists in
+ordinary RNA-seq. It is a reason to be careful with small effects, not a
+bug.</p>
+<p><strong>Almost everything is significant:</strong></p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"%d of %d sites at padj &lt; 0.05"</span>, <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">de</span><span class="op">$</span><span class="va">padj</span> <span class="op">&lt;</span> <span class="fl">0.05</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">de</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "1609 of 1663 sites at padj &lt; 0.05"</span></span></code></pre></div>
+<p>That is what testing across ~800 individual cells buys you. Cells
+within a library share a genome, a capture and a sequencing run, so they
+are not independent observations; treating them as such inflates
+significance. This is the standard single-cell DE pseudoreplication
+problem and it is the deeper reason not to read this output as a
+discovery scan. When the unit of observation matters, aggregate to the
+sample — <code><a href="../reference/computeAlleleFractionIndex.html">computeAlleleFractionIndex()</a></code> and
+<code><a href="../reference/findDEAlleleFraction.html">findDEAlleleFraction()</a></code> do exactly that.</p>
+</div>
+<div class="section level2">
+<h2 id="the-legitimate-use-one-gene-you-already-care-about">The legitimate use: one gene you already care about<a class="anchor" aria-label="anchor" href="#the-legitimate-use-one-gene-you-already-care-about"></a>
+</h2>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">cd74</span> <span class="op">&lt;-</span> <span class="va">de</span><span class="op">[</span><span class="va">de</span><span class="op">$</span><span class="va">gene_name</span> <span class="op">==</span> <span class="st">"CD74"</span>, <span class="op">]</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"CD74: %d sites, median log2fc %.2f, %d significant"</span>,</span>
+<span>        <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">cd74</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/stats/median.html" class="external-link">median</a></span><span class="op">(</span><span class="va">cd74</span><span class="op">$</span><span class="va">log2fc</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
+<span>        <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">cd74</span><span class="op">$</span><span class="va">padj</span> <span class="op">&lt;</span> <span class="fl">0.05</span>, na.rm <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "CD74: 173 sites, median log2fc 0.52, 173 significant"</span></span></code></pre></div>
+<p>Here you are not scanning, the gene is well covered, and the
+multiple-testing objection does not apply.</p>
+</div>
+<div class="section level2">
+<h2 id="useful-arguments">Useful arguments<a class="anchor" aria-label="anchor" href="#useful-arguments"></a>
+</h2>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">findDESNPs</span><span class="op">(</span></span>
+<span>  ident.1         <span class="op">=</span> <span class="st">"Myeloid"</span>,</span>
+<span>  ident.2         <span class="op">=</span> <span class="cn">NULL</span>,      <span class="co"># NULL compares against all other cells</span></span>
+<span>  donor_type      <span class="op">=</span> <span class="st">"Donor"</span>,   <span class="co"># restrict to one genome</span></span>
+<span>  use_normalized  <span class="op">=</span> <span class="cn">TRUE</span>,      <span class="co"># size-factor normalised depth</span></span>
+<span>  min_expr_cells  <span class="op">=</span> <span class="fl">3</span>,         <span class="co"># sites must be seen in this many cells</span></span>
+<span>  min_alt_frac    <span class="op">=</span> <span class="fl">0.2</span>,       <span class="co"># ...at this alt fraction, to be testable</span></span>
+<span>  logfc.threshold <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>  p.adjust.method <span class="op">=</span> <span class="st">"BH"</span>,</span>
+<span>  n_cores         <span class="op">=</span> <span class="fl">4</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p><code>min_alt_frac</code> and <code>min_expr_cells</code> decide
+which sites are <strong>testable</strong>. They do not decide which
+cells contribute to the effect size — that runs over all cells in the
+group, following the Seurat convention, so the fold change and the
+p-value describe the same population.</p>
+<p>Alt fractions are always computed from raw AD/DP regardless of
+<code>use_normalized</code>, since there is no normalised AD matrix and
+dividing a raw count by a log-scaled depth does not produce a
+fraction.</p>
+</div>
+<div class="section level2">
+<h2 id="visualising-snps-across-cell-groups">Visualising SNPs across cell groups<a class="anchor" aria-label="anchor" href="#visualising-snps-across-cell-groups"></a>
+</h2>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPHeatmap</span><span class="op">(</span></span>
+<span>  genes         <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"CD74"</span>, <span class="st">"SFTPC"</span><span class="op">)</span>,</span>
+<span>  group.by      <span class="op">=</span> <span class="st">"compartment"</span>,</span>
+<span>  min_alt_frac  <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  show_rownames <span class="op">=</span> <span class="cn">FALSE</span>   <span class="co"># hundreds of sites; labels are unreadable</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: rs# identifiers requested but not available in project. Using chromosome:position format instead.</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; rs# identifiers requested but not available. Using chromosome:position format.</span></span></code></pre></div>
+<p><img src="cell_level_DE_files/figure-html/heatmap-1.png" class="r-plt" alt="" width="672"></p>
+<p>Immune compartments carry the <code>CD74</code> sites and structural
+compartments the <code>SFTPC</code> sites, which is the depth difference
+the simulation built in.</p>
+<p>To get the underlying matrix instead of the plot:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">hm</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">plotSNPHeatmap</span><span class="op">(</span></span>
+<span>  genes        <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"CD74"</span><span class="op">)</span>,</span>
+<span>  group.by     <span class="op">=</span> <span class="st">"compartment"</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  data_out     <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: rs# identifiers requested but not available in project. Using chromosome:position format instead.</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/str.html" class="external-link">str</a></span><span class="op">(</span><span class="va">hm</span>, max.level <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="co">#&gt; List of 5</span></span>
+<span><span class="co">#&gt;  $ raw_matrix      : num [1:174, 1:5] 1.89 1.71 1.98 1.8 1.94 ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "dimnames")=List of 2</span></span>
+<span><span class="co">#&gt;  $ scaled_matrix   : num [1:174, 1:5] -0.608 -0.955 -0.774 -0.961 -0.622 ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "scaled:center")= Named num [1:174] 2.31 2.34 2.43 2.4 2.35 ...</span></span>
+<span><span class="co">#&gt;   .. ..- attr(*, "names")= chr [1:174] "5_150401642_G_T" "5_150401652_T_G" "5_150401662_A_C" "5_150401672_G_A" ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "scaled:scale")= Named num [1:174] 0.696 0.662 0.577 0.628 0.664 ...</span></span>
+<span><span class="co">#&gt;   .. ..- attr(*, "names")= chr [1:174] "5_150401642_G_T" "5_150401652_T_G" "5_150401662_A_C" "5_150401672_G_A" ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "dimnames")=List of 2</span></span>
+<span><span class="co">#&gt;  $ cell_counts     : num [1:174, 1:5] 229 229 229 229 229 229 229 229 229 229 ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "dimnames")=List of 2</span></span>
+<span><span class="co">#&gt;  $ expr_cell_counts: num [1:174, 1:5] 229 229 229 229 229 229 229 229 229 229 ...</span></span>
+<span><span class="co">#&gt;   ..- attr(*, "dimnames")=List of 2</span></span>
+<span><span class="co">#&gt;  $ snp_info        :'data.frame':    174 obs. of  8 variables:</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="extracting-cells-by-snp-status">Extracting cells by SNP status<a class="anchor" aria-label="anchor" href="#extracting-cells-by-snp-status"></a>
+</h2>
+<p><code><a href="../reference/getCellsForSNPs.html">getCellsForSNPs()</a></code> returns cell IDs meeting an
+allele-fraction and depth criterion, which is how you annotate a Seurat
+object with variant status:</p>
+<p>Three identifier forms are accepted: the full
+<code>CHROM_POS_REF_ALT</code> key, an rs ID if you annotated against a
+reference VCF, and plain <code>chromosome:position</code>.</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">info</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">snp_info</span></span>
+<span><span class="co"># pick the best-covered site in the database</span></span>
+<span><span class="va">best</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/which.min.html" class="external-link">which.max</a></span><span class="op">(</span><span class="fu">Matrix</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/Matrix/man/colSums-methods.html" class="external-link">rowSums</a></span><span class="op">(</span><span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">dp_matrix</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">target</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">info</span><span class="op">$</span><span class="va">CHROM</span><span class="op">[</span><span class="va">best</span><span class="op">]</span>, <span class="va">info</span><span class="op">$</span><span class="va">POS</span><span class="op">[</span><span class="va">best</span><span class="op">]</span>, sep <span class="op">=</span> <span class="st">":"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">carriers</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">getCellsForSNPs</span><span class="op">(</span></span>
+<span>  snp_ids      <span class="op">=</span> <span class="va">target</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,</span>
+<span>  min_dp       <span class="op">=</span> <span class="fl">3</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr</a></span><span class="op">(</span><span class="va">carriers</span>, <span class="st">"summary"</span><span class="op">)</span></span>
+<span><span class="co">#&gt;        snp_id snp_found total_cells_with_data cells_meeting_criteria</span></span>
+<span><span class="co">#&gt; 1 5:150401915      TRUE                   715                    148</span></span>
+<span><span class="co">#&gt;   mean_alt_frac  mean_dp</span></span>
+<span><span class="co">#&gt; 1     0.1223425 5.262937</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">carriers</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "S1_GGGCGGGTGAACTGCT-1" "S1_TTACGTCTACAGCATG-1" "S1_CGGAGCAGCTTTAGAG-1"</span></span></code></pre></div>
+<p>Those cell IDs are ready to annotate an external object:</p>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">seurat_obj</span><span class="op">$</span><span class="va">snp_status</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">seurat_obj</span><span class="op">)</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">carriers</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>                                <span class="st">"carrier"</span>, <span class="st">"non-carrier"</span><span class="op">)</span></span></code></pre></div>
+<p>The summary distinguishes cells with <em>any</em> reads at the site
+from cells that passed both thresholds, which is the difference between
+“not carrying it” and “not covered”.</p>
+</div>
+<div class="section level2">
+<h2 id="next">Next<a class="anchor" aria-label="anchor" href="#next"></a>
+</h2>
+<ul>
+<li>
+<strong>Group-level DE SNP analysis</strong> —
+<code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> and the genotype guard.</li>
+<li>
+<strong>Building the SNP database</strong> — the import path.</li>
+</ul>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

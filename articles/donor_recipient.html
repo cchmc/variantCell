@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -59,8 +59,9 @@
   <main id="main" class="col-md-9"><div class="page-header">
 
       <h1>Determining Donor and Recipient Cells</h1>
+                        <h4 data-toc-skip class="author">Andrew
+Potter</h4>
             
-            <h4 data-toc-skip class="date">2025-05-12</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/cchmc/variantCell/blob/main/vignettes/donor_recipient.Rmd"><code>vignettes/donor_recipient.Rmd</code></a></small>
       <div class="d-none name"><code>donor_recipient.Rmd</code></div>
@@ -68,81 +69,241 @@
 
     
     
-<div class="section level2">
-<h2 id="creating-a-new-variantcell-project">Creating a new variantCell project<a class="anchor" aria-label="anchor" href="#creating-a-new-variantcell-project"></a>
-</h2>
-<p>If you haven’t already done so, you can create a new project by using
-the command:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co">#Create new variantCell object</span></span>
-<span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-<p>to initialize the project.</p>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/cchmc/variantCell">variantCell</a></span><span class="op">)</span></span></code></pre></div>
+<div class="section level2">
+<h2 id="the-problem">The problem<a class="anchor" aria-label="anchor" href="#the-problem"></a>
+</h2>
+<p>Vireo separates the cells in a multiplexed library into genotype
+clusters and labels them <code>donor0</code>, <code>donor1</code>, and
+so on. <strong>Those labels carry no meaning.</strong> They are assigned
+independently on every run, and re-processing the same data will happily
+swap them.</p>
+<p>This is not hypothetical. Re-running a 22-sample lung transplant
+cohort under a newer CellRanger version swapped the labels on <strong>16
+of 22 samples</strong> — the same two cell populations, opposite labels,
+no error and no warning.</p>
+<p>A donor/recipient mapping recorded against one Vireo run must never
+be reused against another. Doing so silently inverts Donor and
+Recipient, and every downstream result inverts with it.</p>
+<p><code><a href="../reference/inferDonorType.html">inferDonorType()</a></code> re-derives the mapping from the data
+every time.</p>
 </div>
 <div class="section level2">
-<h2 id="determining-donor-recipient-cells-in-single-cell-data">Determining Donor / Recipient Cells in Single Cell Data<a class="anchor" aria-label="anchor" href="#determining-donor-recipient-cells-in-single-cell-data"></a>
+<h2 id="how-it-works">How it works<a class="anchor" aria-label="anchor" href="#how-it-works"></a>
 </h2>
-<p>If you need to identify which cells are donor or recipient, you can
-use the process_vireo_seurat helper function (below).</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co">#process vireo using Seurat metadata</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>process_vireo_seurat <span class="ot">=</span> <span class="cf">function</span>(</span>
-<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>  seurat_obj,</span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>  vireo_path,</span>
-<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>  prefix_text</span>
-<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>)</span></code></pre></div>
-<p>Usage example:</p>
+<p>The graft supplies the organ’s structural tissue — epithelium,
+endothelium, stroma. The recipient supplies infiltrating immune cells.
+So for each Vireo cluster, compute the fraction of its cells that are
+structural; the higher one is the donor.</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">sim</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulateVariantCellData.html">simulateVariantCellData</a></span><span class="op">(</span>verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+<p>The simulator randomises which genome Vireo calls
+<code>donor0</code>, exactly as a real run does. Here is the ground
+truth it recorded:</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">sample_donor_recipient</span> <span class="op">&lt;-</span> <span class="va">vCell_project</span><span class="op">$</span><span class="fu">process_vireo_seurat</span><span class="op">(</span></span>
-<span>    <span class="va">sample</span>,</span>
-<span>    vireo_path  <span class="op">=</span> <span class="st">"donor_ids.tsv"</span>,</span>
-<span>    prefix_text <span class="op">=</span> <span class="st">"prefix_text_to_add_"</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<p>This will provide output similar to below, indicating the matching
-cells in the metadata, and the cell type distribution for the donors
-identified by Vireo:</p>
-<blockquote>
-<p>Initial cell identities in Seurat object:</p>
-<p>Sample1 1152 Seurat object cells: 1152 Total Vireo cells: 1661</p>
-<p>First few Seurat rownames: Patient1_AAACCCAAGTCTAGAA-1
-Patient1_AAACGCTGTGGACAGT-1 Patient1_AAAGGATCAGTTGTTG-1
-Patient1_AAAGGATTCCTCGCAT-1 Patient1_AAAGTCCAGCACTCCG-1
-Patient1_AAAGTCCGTTGCATTG-1 First few metadata rownames:
-Patient1_AAACCCAAGTCTAGAA-1 Patient1_AAACGCTGTGGACAGT-1
-Patient1_AAAGGATCAGTTGTTG-1 Patient1_AAAGGATTCCTCGCAT-1
-Patient1_AAAGGGCTCAAAGGTA-1 Patient1_AAAGTCCAGCACTCCG-1</p>
-<p>Number of matching cells: 1152</p>
-</blockquote>
-<blockquote>
-<p>Cell type distribution for donor1:</p>
-<pre><code>  Classical Monocyte        Differentiating T            Gamma Delta T        IGSF21+ Dendritic 
-                  10                       34                       81                        9 
-     Innate Lymphoid    Intermediate Monocyte               Macrophage                     MAIT 
-                   4                        3                       29                        5 
-                Mast                 Memory B Myeloid Dendritic Type 1 Myeloid Dendritic Type 2 
-                  13                       46                       10                       23 
-             Naive B             Naive CD4+ T             Naive CD8+ T               Neutrophil 
-                   1                       31                        2                        1 
-                  NK    Nonclassical Monocyte OLR1+ Classical Monocyte                   Plasma 
-                  14                       23                        2                       62 </code></pre>
-<p>Cell type distribution for donor0:</p>
-<pre><code>Adventitial Fibroblast       Airway Smooth Muscle Alveolar Epithelial Type 1 Alveolar Epithelial Type 2 
-                     5                          1                          3                          1 
-   Alveolar Fibroblast                     Artery                      Basal                  Capillary 
-                    13                         10                         16                         38 
-    Capillary Aerocyte                   Ciliated      Differentiating Basal                     Goblet 
-                     3                          3                          1                          1 
-             Lymphatic           Microvasculature                     Mucous              Myofibroblast 
-                     1                         11                          1                          3 
-              Pericyte                     Plasma        Proliferating Basal             Proximal Basal 
-                     6                          3                          2                          3 
-Vascular Smooth Muscle                       Vein 
-                     3                         11 </code></pre>
-</blockquote>
-<p>In this case, the donor cells can be identified as (likely) donor0 -
-with predominantly structural lung cells, while donor1, containing
-mostly immune cells, is the recipient. This will be used as input to the
-<code>addSampleData</code> function - to specify which donor is the
-recipient/donor. This process will need to be repeated for each sample
-to determine donor/recipient, based on cell type distributions.</p>
+<code class="sourceCode R"><span><span class="va">sim</span><span class="op">$</span><span class="va">truth</span><span class="op">$</span><span class="va">labels</span></span>
+<span><span class="co">#&gt;   sample patient donor0 donor1</span></span>
+<span><span class="co">#&gt; 1     S1      P1   host  graft</span></span>
+<span><span class="co">#&gt; 2     S2      P1   host  graft</span></span>
+<span><span class="co">#&gt; 3     S3      P2  graft   host</span></span>
+<span><span class="co">#&gt; 4     S4      P3  graft   host</span></span>
+<span><span class="co">#&gt; 5     S5      P4  graft   host</span></span></code></pre></div>
+<p>Now infer it, using only the cell metadata and the Vireo output:</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/inferDonorType.html">inferDonorType</a></span><span class="op">(</span></span>
+<span>  <span class="va">sim</span><span class="op">$</span><span class="va">metadata</span>,</span>
+<span>  vireo_dir         <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_dir</span>,</span>
+<span>  sample_col        <span class="op">=</span> <span class="st">"Biopsy"</span>,</span>
+<span>  barcode_col       <span class="op">=</span> <span class="st">"Barcode"</span>,</span>
+<span>  structural_col    <span class="op">=</span> <span class="st">"compartment"</span>,</span>
+<span>  structural_values <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Epithelial"</span>, <span class="st">"Endothelial"</span>, <span class="st">"Stromal"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; === Inferring donor/recipient identity ===</span></span>
+<span><span class="co">#&gt; Samples: 5 | structural = Epithelial, Endothelial, Stromal</span></span>
+<span><span class="co">#&gt;   S1       donor0=Recipient (struct 0.114, n=88) | donor1=Donor     (struct 0.903, n=72) | margin 0.789</span></span>
+<span><span class="co">#&gt;   S2       donor0=Recipient (struct 0.071, n=85) | donor1=Donor     (struct 0.861, n=72) | margin 0.791</span></span>
+<span><span class="co">#&gt;   S3       donor0=Donor     (struct 0.914, n=70) | donor1=Recipient (struct 0.034, n=88) | margin 0.880</span></span>
+<span><span class="co">#&gt;   S4       donor0=Donor     (struct 0.875, n=72) | donor1=Recipient (struct 0.093, n=86) | margin 0.782</span></span>
+<span><span class="co">#&gt;   S5       donor0=Donor     (struct 0.972, n=71) | donor1=Recipient (struct 0.070, n=86) | margin 0.902</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Called 5/5 samples (0 ambiguous, 0 skipped)</span></span>
+<span><span class="co">#&gt; Margin: min 0.782, median 0.791</span></span>
+<span><span class="co">#&gt; donor0 = Recipient in 2 sample(s): S1, S2</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Vireo donor labels are arbitrary per run - re-infer after any re-run.</span></span></code></pre></div>
+<p>The per-sample audit shows the separation it is working from:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"sample"</span>, <span class="st">"n_donor0"</span>, <span class="st">"n_donor1"</span>,</span>
+<span>                <span class="st">"struct_frac_donor0"</span>, <span class="st">"struct_frac_donor1"</span>,</span>
+<span>                <span class="st">"margin"</span>, <span class="st">"donor0"</span>, <span class="st">"donor1"</span>, <span class="st">"call"</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="co">#&gt;   sample n_donor0 n_donor1 struct_frac_donor0 struct_frac_donor1    margin</span></span>
+<span><span class="co">#&gt; 1     S1       88       72         0.11363636         0.90277778 0.7891414</span></span>
+<span><span class="co">#&gt; 2     S2       85       72         0.07058824         0.86111111 0.7905229</span></span>
+<span><span class="co">#&gt; 3     S3       70       88         0.91428571         0.03409091 0.8801948</span></span>
+<span><span class="co">#&gt; 4     S4       72       86         0.87500000         0.09302326 0.7819767</span></span>
+<span><span class="co">#&gt; 5     S5       71       86         0.97183099         0.06976744 0.9020635</span></span>
+<span><span class="co">#&gt;      donor0    donor1 call</span></span>
+<span><span class="co">#&gt; 1 Recipient     Donor   ok</span></span>
+<span><span class="co">#&gt; 2 Recipient     Donor   ok</span></span>
+<span><span class="co">#&gt; 3     Donor Recipient   ok</span></span>
+<span><span class="co">#&gt; 4     Donor Recipient   ok</span></span>
+<span><span class="co">#&gt; 5     Donor Recipient   ok</span></span></code></pre></div>
+<p>And it recovers the truth, including the sample whose labels are
+flipped:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">truth</span> <span class="op">&lt;-</span> <span class="va">sim</span><span class="op">$</span><span class="va">truth</span><span class="op">$</span><span class="va">labels</span></span>
+<span><span class="va">got</span>   <span class="op">&lt;-</span> <span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">truth</span><span class="op">$</span><span class="va">sample</span>, <span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span>, <span class="op">]</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  sample    <span class="op">=</span> <span class="va">truth</span><span class="op">$</span><span class="va">sample</span>,</span>
+<span>  simulated <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">truth</span><span class="op">$</span><span class="va">donor0</span> <span class="op">==</span> <span class="st">"graft"</span>, <span class="st">"Donor"</span>, <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>  inferred  <span class="op">=</span> <span class="va">got</span><span class="op">$</span><span class="va">donor0</span>,</span>
+<span>  agree     <span class="op">=</span> <span class="op">(</span><span class="va">truth</span><span class="op">$</span><span class="va">donor0</span> <span class="op">==</span> <span class="st">"graft"</span><span class="op">)</span> <span class="op">==</span> <span class="op">(</span><span class="va">got</span><span class="op">$</span><span class="va">donor0</span> <span class="op">==</span> <span class="st">"Donor"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt;   sample simulated  inferred agree</span></span>
+<span><span class="co">#&gt; 1     S1 Recipient Recipient  TRUE</span></span>
+<span><span class="co">#&gt; 2     S2 Recipient Recipient  TRUE</span></span>
+<span><span class="co">#&gt; 3     S3     Donor     Donor  TRUE</span></span>
+<span><span class="co">#&gt; 4     S4     Donor     Donor  TRUE</span></span>
+<span><span class="co">#&gt; 5     S5     Donor     Donor  TRUE</span></span></code></pre></div>
+<p>The separation is normally near-binary, which is why a <em>low</em>
+margin is treated as a problem rather than mild uncertainty. Samples
+below <code>min_margin</code> are reported <code>"ambiguous"</code> and
+left <code>NA</code> rather than guessed:</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/range.html" class="external-link">range</a></span><span class="op">(</span><span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">$</span><span class="va">margin</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 0.7819767 0.9020635</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="using-the-result">Using the result<a class="anchor" aria-label="anchor" href="#using-the-result"></a>
+</h2>
+<p><code>inf$donor_types</code> is a per-sample named vector ready to
+hand to <code><a href="../reference/addSampleData.html">addSampleData()</a></code>:</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="st">"S1"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="co">#&gt;      donor0      donor1 </span></span>
+<span><span class="co">#&gt; "Recipient"     "Donor"</span></span>
+<span><span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="st">"S3"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="co">#&gt;      donor0      donor1 </span></span>
+<span><span class="co">#&gt;     "Donor" "Recipient"</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">s</span> <span class="kw">in</span> <span class="va">sim</span><span class="op">$</span><span class="va">design</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="fu">addSampleData</span><span class="op">(</span></span>
+<span>    sample_id    <span class="op">=</span> <span class="va">s</span>,</span>
+<span>    vireo_path   <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cellsnp_path <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">cellsnp_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cell_data    <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">[</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">$</span><span class="va">Biopsy</span> <span class="op">==</span> <span class="va">s</span>, <span class="op">]</span>,</span>
+<span>    data_type    <span class="op">=</span> <span class="st">"dataframe"</span>,</span>
+<span>    prefix_text  <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">prefixes</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    donor_type   <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
+<p>With the mapping correct, the composition separates as it should:</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">db</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">donor_type</span>, <span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">compartment</span><span class="op">)</span></span>
+<span><span class="co">#&gt;            </span></span>
+<span><span class="co">#&gt;             Endothelial Epithelial Lymphoid Myeloid Stromal</span></span>
+<span><span class="co">#&gt;   Donor              60        207       23      11      56</span></span>
+<span><span class="co">#&gt;   Recipient           8         19      239     161       6</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="what-getting-it-wrong-looks-like">What getting it wrong looks like<a class="anchor" aria-label="anchor" href="#what-getting-it-wrong-looks-like"></a>
+</h2>
+<p>Hard-coding <code>donor0 = "Donor"</code> for every sample produces
+this instead:</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">naive</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  sample   <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">$</span><span class="va">sample</span>,</span>
+<span>  inferred <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">$</span><span class="va">donor0</span>,</span>
+<span>  hardcoded <span class="op">=</span> <span class="st">"Donor"</span>,</span>
+<span>  result   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">inf</span><span class="op">$</span><span class="va">mapping</span><span class="op">$</span><span class="va">donor0</span> <span class="op">==</span> <span class="st">"Donor"</span>, <span class="st">"correct"</span>, <span class="st">"INVERTED"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">naive</span></span>
+<span><span class="co">#&gt;   sample  inferred hardcoded   result</span></span>
+<span><span class="co">#&gt; 1     S1 Recipient     Donor INVERTED</span></span>
+<span><span class="co">#&gt; 2     S2 Recipient     Donor INVERTED</span></span>
+<span><span class="co">#&gt; 3     S3     Donor     Donor  correct</span></span>
+<span><span class="co">#&gt; 4     S4     Donor     Donor  correct</span></span>
+<span><span class="co">#&gt; 5     S5     Donor     Donor  correct</span></span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"%d of %d samples would have donor and recipient swapped"</span>,</span>
+<span>        <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">naive</span><span class="op">$</span><span class="va">result</span> <span class="op">==</span> <span class="st">"INVERTED"</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">naive</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "2 of 5 samples would have donor and recipient swapped"</span></span></code></pre></div>
+<p>Sixteen of twenty-two in the real cohort. The failure is silent — the
+analysis runs, the plots render, and the biology is backwards for those
+samples.</p>
+</div>
+<div class="section level2">
+<h2 id="confirming-the-clusters-really-are-two-genomes">Confirming the clusters really are two genomes<a class="anchor" aria-label="anchor" href="#confirming-the-clusters-really-are-two-genomes"></a>
+</h2>
+<p>The composition heuristic assumes Vireo split the library along
+genotype. That assumption is checkable directly, without any cell-type
+labels:</p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">cm</span> <span class="op">&lt;-</span> <span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span></span>
+<span><span class="va">gc_within</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/checkGenotypeConcordance.html">checkGenotypeConcordance</a></span><span class="op">(</span></span>
+<span>  <span class="va">db</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Donor"</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>  verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>concordance <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">gc_within</span><span class="op">$</span><span class="va">concordance</span>, <span class="fl">3</span><span class="op">)</span>, verdict <span class="op">=</span> <span class="va">gc_within</span><span class="op">$</span><span class="va">verdict</span><span class="op">)</span></span>
+<span><span class="co">#&gt;         concordance             verdict </span></span>
+<span><span class="co">#&gt;             "0.499" "different_genomes"</span></span></code></pre></div>
+<p>Two genomes in one library agree at only about half the callable
+sites. Compare that with the same individual sampled twice —
+<code>S1</code> and <code>S2</code> are repeat biopsies of the same
+patient:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">gc_same</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/checkGenotypeConcordance.html">checkGenotypeConcordance</a></span><span class="op">(</span></span>
+<span>  <span class="va">db</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S2"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>  verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>concordance <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">gc_same</span><span class="op">$</span><span class="va">concordance</span>, <span class="fl">3</span><span class="op">)</span>, verdict <span class="op">=</span> <span class="va">gc_same</span><span class="op">$</span><span class="va">verdict</span><span class="op">)</span></span>
+<span><span class="co">#&gt;   concordance       verdict </span></span>
+<span><span class="co">#&gt;       "0.999" "same_genome"</span></span></code></pre></div>
+<p>Near-perfect agreement, because it is one person. This is also a
+sample-swap detector: the distinct-genome count comes from clustering on
+concordance, not from any patient column, so a mislabelled sample cannot
+hide behind its metadata.</p>
+</div>
+<div class="section level2">
+<h2 id="other-data-types">Other data types<a class="anchor" aria-label="anchor" href="#other-data-types"></a>
+</h2>
+<p><code><a href="../reference/inferDonorType.html">inferDonorType()</a></code> accepts a Seurat object or a
+SingleCellExperiment as well as a data frame, and with
+<code>add_metadata = TRUE</code> returns the input object with
+<code>vireo_donor</code> and <code>donor_type</code> columns
+attached:</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">inf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/inferDonorType.html">inferDonorType</a></span><span class="op">(</span><span class="va">merged_seurat</span>, vireo_dir <span class="op">=</span> <span class="st">"Vireo/cellranger8"</span><span class="op">)</span></span>
+<span><span class="va">merged_seurat</span> <span class="op">&lt;-</span> <span class="va">inf</span><span class="op">$</span><span class="va">object</span></span></code></pre></div>
+<p>If you only want Vireo’s assignments joined onto your metadata
+without the donor/recipient call, the lower-level helpers do that
+directly:</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">process_vireo_seurat</span><span class="op">(</span><span class="va">seurat_obj</span>, <span class="va">vireo_path</span>, <span class="va">prefix_text</span><span class="op">)</span></span>
+<span><span class="va">res</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">process_vireo_sce</span><span class="op">(</span><span class="va">sce_obj</span>, <span class="va">vireo_path</span>, <span class="va">prefix_text</span><span class="op">)</span></span>
+<span><span class="va">res</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">process_vireo_dataframe</span><span class="op">(</span><span class="va">meta_df</span>, <span class="va">vireo_path</span>, <span class="va">prefix_text</span><span class="op">)</span></span></code></pre></div>
+<p>These two chunks are not evaluated because they need your own
+object.</p>
+</div>
+<div class="section level2">
+<h2 id="next">Next<a class="anchor" aria-label="anchor" href="#next"></a>
+</h2>
+<ul>
+<li>
+<strong>Building the SNP database</strong> — the import path in
+full.</li>
+<li>
+<strong>Group-level DE SNP analysis</strong> — what a
+donor/recipient contrast can and cannot answer once you have it.</li>
+</ul>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

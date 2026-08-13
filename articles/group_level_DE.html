@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -62,7 +62,6 @@
                         <h4 data-toc-skip class="author">Andrew
 Potter</h4>
             
-            <h4 data-toc-skip class="date">2025-05-12</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/cchmc/variantCell/blob/main/vignettes/group_level_DE.Rmd"><code>vignettes/group_level_DE.Rmd</code></a></small>
       <div class="d-none name"><code>group_level_DE.Rmd</code></div>
@@ -70,213 +69,493 @@ Potter</h4>
 
     
     
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/cchmc/variantCell">variantCell</a></span><span class="op">)</span></span></code></pre></div>
 <div class="section level2">
-<h2 id="group-level-snp-analysis">Group-level SNP Analysis<a class="anchor" aria-label="anchor" href="#group-level-snp-analysis"></a>
+<h2 id="presence-and-absence-is-a-genotype-test">Presence and absence is a genotype test<a class="anchor" aria-label="anchor" href="#presence-and-absence-is-a-genotype-test"></a>
 </h2>
-<p>Group level differential expression analysis requires a SNP database
-to be built (please see previous tutorials). This guide will walk you
-through the process of analyzing SNPs at the group level using the
-variantCell package.</p>
-<div class="section level3">
-<h3 id="exploring-snp-metadata">Exploring SNP Metadata<a class="anchor" aria-label="anchor" href="#exploring-snp-metadata"></a>
-</h3>
-<p>To view the SNP metadata within your project, you can use the
-following command:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>\dontrun{</span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>  <span class="co"># Initialize a variantCell project</span></span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>  project <span class="ot">&lt;-</span> variantCell<span class="sc">$</span><span class="fu">new</span>()</span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>  </span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>  <span class="co"># In practice, you would add samples and build the database first</span></span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>  <span class="co"># project$addSampleData(...)</span></span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>  <span class="co"># project$buildSNPDatabase()</span></span>
-<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>  <span class="co"># project$setProjectIdentity("cell_type")</span></span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a></span>
-<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>}</span></code></pre></div>
+<p><code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> asks which variants are present in one
+group of cells and absent in another. Because germline genotype is fixed
+at conception, that question is only meaningful when the two groups are
+<strong>different genomes</strong>.</p>
+<p>There are three regimes, and nothing in a cell-identity label tells
+you which one you are in:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>your two groups are</th>
+<th>status</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>two genomes, one on each side, in one library</td>
+<td>
+<strong>valid</strong>, and strong</td>
+</tr>
+<tr class="even">
+<td>the same genome</td>
+<td>
+<strong>structurally empty</strong> — not underpowered, empty</td>
+</tr>
+<tr class="odd">
+<td>several genomes on each side</td>
+<td>a <strong>genetic association</strong> design, capped by group
+size</td>
+</tr>
+</tbody>
+</table>
+<p><code><a href="../reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> measures which regime
+applies, directly from the data. <code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> runs it
+by default and warns.</p>
+</div>
+<div class="section level2">
+<h2 id="setup">Setup<a class="anchor" aria-label="anchor" href="#setup"></a>
+</h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># View SNP metadata</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/View.html" class="external-link">View</a></span><span class="op">(</span><span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="creating-custom-metadata-variables">Creating Custom Metadata Variables<a class="anchor" aria-label="anchor" href="#creating-custom-metadata-variables"></a>
-</h3>
-<p>You can create new metadata variables to help with grouping or
-visualization:</p>
+<code class="sourceCode R"><span><span class="va">sim</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/simulateVariantCellData.html">simulateVariantCellData</a></span><span class="op">(</span>verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="va">inf</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/inferDonorType.html">inferDonorType</a></span><span class="op">(</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span>, vireo_dir <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_dir</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">project</span> <span class="op">&lt;-</span> <span class="va"><a href="../reference/variantCell-package.html">variantCell</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">s</span> <span class="kw">in</span> <span class="va">sim</span><span class="op">$</span><span class="va">design</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="fu">addSampleData</span><span class="op">(</span></span>
+<span>    sample_id    <span class="op">=</span> <span class="va">s</span>,</span>
+<span>    vireo_path   <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">vireo_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cellsnp_path <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">cellsnp_paths</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    cell_data    <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">[</span><span class="va">sim</span><span class="op">$</span><span class="va">metadata</span><span class="op">$</span><span class="va">Biopsy</span> <span class="op">==</span> <span class="va">s</span>, <span class="op">]</span>,</span>
+<span>    data_type    <span class="op">=</span> <span class="st">"dataframe"</span>,</span>
+<span>    prefix_text  <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">prefixes</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    donor_type   <span class="op">=</span> <span class="va">inf</span><span class="op">$</span><span class="va">donor_types</span><span class="op">[[</span><span class="va">s</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span><span class="va">project</span><span class="op">$</span><span class="fu">buildSNPDatabase</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Create a combined patient and donor type variable</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">patient_donor</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span></span>
-<span>  <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">patient</span>, </span>
-<span>  <span class="st">'_'</span>, </span>
-<span>  <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span><span class="op">$</span><span class="va">donor_type</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="va">sim</span><span class="op">$</span><span class="va">design</span></span>
+<span><span class="co">#&gt;   sample patient condition</span></span>
+<span><span class="co">#&gt; 1     S1      P1 Rejection</span></span>
+<span><span class="co">#&gt; 2     S2      P1 Rejection</span></span>
+<span><span class="co">#&gt; 3     S3      P2 Rejection</span></span>
+<span><span class="co">#&gt; 4     S4      P3    Stable</span></span>
+<span><span class="co">#&gt; 5     S5      P4    Stable</span></span></code></pre></div>
+<p>Note that <code>S1</code> and <code>S2</code> are repeat biopsies of
+the same patient. That gives us one of each regime to demonstrate.</p>
 </div>
-<div class="section level3">
-<h3 id="aggregating-snp-counts-by-group">Aggregating SNP Counts by Group<a class="anchor" aria-label="anchor" href="#aggregating-snp-counts-by-group"></a>
-</h3>
-<p>Prior to analyzing SNP expression differences between groups, we need
-to aggregate the individual cell SNP counts into group-level
-summaries.</p>
-<div class="section level4">
-<h4 id="aggregatebygroup-function">aggregateByGroup Function<a class="anchor" aria-label="anchor" href="#aggregatebygroup-function"></a>
-</h4>
+<div class="section level2">
+<h2 id="measuring-the-regime-before-testing">Measuring the regime before testing<a class="anchor" aria-label="anchor" href="#measuring-the-regime-before-testing"></a>
+</h2>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Function signature and parameters</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span></span>
-<span>  <span class="va">group_by</span>,                <span class="co"># Column name in metadata to use for grouping cells</span></span>
-<span>  donor_type <span class="op">=</span> <span class="cn">NULL</span>,       <span class="co"># Specific donor type to analyze (e.g., "Donor" or "Recipient")</span></span>
-<span>  min_cells_per_group <span class="op">=</span> <span class="fl">3</span>, <span class="co"># Minimum cells required per group</span></span>
-<span>  use_normalized <span class="op">=</span> <span class="cn">TRUE</span>    <span class="co"># Whether to use normalized counts</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level4">
-<h4 id="example-aggregating-by-disease-status-for-donor-cells">Example: Aggregating by Disease Status for Donor Cells<a class="anchor" aria-label="anchor" href="#example-aggregating-by-disease-status-for-donor-cells"></a>
-</h4>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Aggregate SNP counts by ACR status, using only donor cells</span></span>
-<span><span class="va">collapsed</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span></span>
-<span>  group_by <span class="op">=</span> <span class="st">"snpGrade"</span>,     <span class="co"># Group by ACR status</span></span>
-<span>  use_normalized <span class="op">=</span> <span class="cn">TRUE</span>,     <span class="co"># Use normalized counts</span></span>
-<span>  donor_type <span class="op">=</span> <span class="st">'Donor'</span>       <span class="co"># Restrict to donor cells only</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<p>When executed, you should see output similar to:</p>
-<pre><code>Filtering for donor type: Donor
-Total cells before filter: 56676
-Cells passing filter: 22096
-NA values in donor_type: 1003
-
-Collapsed data by snpGrade:
- - Total cells: 22096
- - Total groups: 2
- - Included groups: 2
- - Filtered groups: 0
- - Using normalized counts: TRUE
-
-Group details:
-   group n_cells mean_depth filter_status
-1    ACR   12598   3981.279      included
-2 No_ACR    9498   7392.881      included</code></pre>
-</div>
-</div>
-<div class="section level3">
-<h3 id="finding-differentially-expressed-snps-between-groups">Finding Differentially Expressed SNPs Between Groups<a class="anchor" aria-label="anchor" href="#finding-differentially-expressed-snps-between-groups"></a>
-</h3>
-<p>After aggregating our data, we can identify SNPs that are
-differentially present between groups. The <code>findSNPsByGroup</code>
-function compares alternative allele frequencies between groups to find
-variants that are specifically present in one group but not the
-other.</p>
-<div class="section level4">
-<h4 id="findsnpsbygroup-function">findSNPsByGroup Function<a class="anchor" aria-label="anchor" href="#findsnpsbygroup-function"></a>
-</h4>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Function signature and parameters</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">findSNPsByGroup</span><span class="op">(</span></span>
-<span>  <span class="va">ident.1</span>,                 <span class="co"># Primary group identity to analyze</span></span>
-<span>  ident.2 <span class="op">=</span> <span class="cn">NULL</span>,          <span class="co"># Secondary group identity to compare against (NULL = all others)</span></span>
-<span>  <span class="va">aggregated_data</span>,         <span class="co"># Output from aggregateByGroup function</span></span>
-<span>  min_depth <span class="op">=</span> <span class="fl">10</span>,          <span class="co"># Minimum read depth required for a group</span></span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,      <span class="co"># Minimum alt allele fraction in primary group</span></span>
-<span>  max_alt_frac_other <span class="op">=</span> <span class="fl">0.1</span>, <span class="co"># Maximum alt fraction allowed in other group</span></span>
-<span>  return_all <span class="op">=</span> <span class="cn">TRUE</span>        <span class="co"># Whether to return all results or only significant ones</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level4">
-<h4 id="example-finding-snps-between-acr-and-no_acr-groups">Example: Finding SNPs Between ACR and No_ACR Groups<a class="anchor" aria-label="anchor" href="#example-finding-snps-between-acr-and-no_acr-groups"></a>
-</h4>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Find SNPs present in ACR patients but absent in No_ACR patients</span></span>
-<span><span class="va">de_results</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">findSNPsByGroup</span><span class="op">(</span></span>
-<span>  ident.1 <span class="op">=</span> <span class="st">"ACR"</span>,             <span class="co"># Primary group to analyze</span></span>
-<span>  ident.2 <span class="op">=</span> <span class="st">'No_ACR'</span>,          <span class="co"># Comparison group</span></span>
-<span>  aggregated_data <span class="op">=</span> <span class="va">collapsed</span>, <span class="co"># Aggregated data from previous step</span></span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.05</span>,         <span class="co"># SNP must have at least 5% alt frequency in ACR</span></span>
-<span>  max_alt_frac_other <span class="op">=</span> <span class="fl">0.01</span>    <span class="co"># SNP must have no more than 1% alt frequency in No_ACR</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-</div>
-<div class="section level3">
-<h3 id="examining-the-results">Examining the Results<a class="anchor" aria-label="anchor" href="#examining-the-results"></a>
-</h3>
-<p>After running the analysis, you can examine the results:</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># View summary of the analysis</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">de_results</span><span class="op">$</span><span class="va">summary</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">db</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="va">snp_database</span></span>
+<span><span class="va">cm</span> <span class="op">&lt;-</span> <span class="va">db</span><span class="op">$</span><span class="va">cell_metadata</span></span>
 <span></span>
-<span><span class="co"># Look at the top SNPs by presence score</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">de_results</span><span class="op">$</span><span class="va">results</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/order.html" class="external-link">order</a></span><span class="op">(</span><span class="op">-</span><span class="va">de_results</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">presence_score</span><span class="op">)</span>, <span class="op">]</span>, <span class="fl">10</span><span class="op">)</span></span>
+<span><span class="va">regime</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">label</span>, <span class="va">i1</span>, <span class="va">i2</span>, <span class="va">...</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">r</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/checkGenotypeConcordance.html">checkGenotypeConcordance</a></span><span class="op">(</span><span class="va">db</span>, <span class="va">i1</span>, <span class="va">i2</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span>, <span class="va">...</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>contrast <span class="op">=</span> <span class="va">label</span>,</span>
+<span>             concordance <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">r</span><span class="op">$</span><span class="va">concordance</span>, <span class="fl">3</span><span class="op">)</span>,</span>
+<span>             genomes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">r</span><span class="op">$</span><span class="va">n_genomes1</span>, <span class="st">"vs"</span>, <span class="va">r</span><span class="op">$</span><span class="va">n_genomes2</span><span class="op">)</span>,</span>
+<span>             verdict <span class="op">=</span> <span class="va">r</span><span class="op">$</span><span class="va">verdict</span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
 <span></span>
-<span><span class="co"># How many SNPs are present in each group?</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">de_results</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">presence</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Save results to a CSV file</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/write.table.html" class="external-link">write.csv</a></span><span class="op">(</span><span class="va">de_results</span><span class="op">$</span><span class="va">results</span>, <span class="st">'SNP_ACR_NoACR_Donor.csv'</span>, row.names <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="visualizing-snps-in-genes-of-interest">Visualizing SNPs in Genes of Interest<a class="anchor" aria-label="anchor" href="#visualizing-snps-in-genes-of-interest"></a>
-</h3>
-<p>You can visualize SNPs within specific genes using the
-<code>plotSNPs</code> function.</p>
-<div class="section level4">
-<h4 id="plotsnps-function">plotSNPs Function<a class="anchor" aria-label="anchor" href="#plotsnps-function"></a>
-</h4>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Function signature and parameters</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
-<span>  <span class="va">gene</span>,                      <span class="co"># Gene symbol to visualize</span></span>
-<span>  group.by <span class="op">=</span> <span class="cn">NULL</span>,           <span class="co"># Primary grouping variable from metadata</span></span>
-<span>  split.by <span class="op">=</span> <span class="cn">NULL</span>,           <span class="co"># Secondary grouping variable for within-group comparisons</span></span>
-<span>  idents <span class="op">=</span> <span class="cn">NULL</span>,             <span class="co"># Specific identity values to include</span></span>
-<span>  min_depth <span class="op">=</span> <span class="fl">10</span>,            <span class="co"># Minimum read depth required for a SNP</span></span>
-<span>  min_cells <span class="op">=</span> <span class="fl">3</span>,             <span class="co"># Minimum cells per group required</span></span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,        <span class="co"># Minimum alternative allele fraction</span></span>
-<span>  flank_size <span class="op">=</span> <span class="fl">5000</span>,         <span class="co"># Size of flanking regions (bp) around gene</span></span>
-<span>  plot_density <span class="op">=</span> <span class="cn">TRUE</span>,       <span class="co"># Whether to include density plots</span></span>
-<span>  data_out <span class="op">=</span> <span class="cn">FALSE</span>,          <span class="co"># Return data frame instead of plots</span></span>
-<span>  use_normalized <span class="op">=</span> <span class="cn">FALSE</span>,    <span class="co"># Use normalized read depth values</span></span>
-<span>  color_scheme <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"low"</span> <span class="op">=</span> <span class="st">"blue"</span>, <span class="st">"high"</span> <span class="op">=</span> <span class="st">"red"</span><span class="op">)</span>, <span class="co"># Colors for gradient</span></span>
-<span>  point_size_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">2</span>, <span class="fl">8</span><span class="op">)</span> <span class="co"># Range of point sizes for depth</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level4">
-<h4 id="example-visualizing-jak1-snps-by-acr-status-and-patient-donor">Example: Visualizing JAK1 SNPs by ACR Status and Patient-Donor<a class="anchor" aria-label="anchor" href="#example-visualizing-jak1-snps-by-acr-status-and-patient-donor"></a>
-</h4>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Plot SNPs in JAK1 gene without minimum alt fraction threshold</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
-<span>  <span class="st">'JAK1'</span>,</span>
-<span>  group.by <span class="op">=</span> <span class="st">'snpGrade'</span>,       <span class="co"># Group by ACR status</span></span>
-<span>  split.by <span class="op">=</span> <span class="st">'patient_donor'</span>,  <span class="co"># Split by patient and donor type</span></span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,            <span class="co"># Show all SNPs regardless of alt fraction</span></span>
-<span>  plot_density <span class="op">=</span> <span class="cn">FALSE</span>         <span class="co"># Don't show density plots</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<p><img src="SNP_plot_JAK1.png"></p>
-</div>
-<div class="section level4">
-<h4 id="example-visualizing-with-filtered-snps-and-density-plots">Example: Visualizing With Filtered SNPs and Density Plots<a class="anchor" aria-label="anchor" href="#example-visualizing-with-filtered-snps-and-density-plots"></a>
-</h4>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Plot JAK1 SNPs with minimum alt fraction and density plots</span></span>
-<span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
-<span>  <span class="st">'JAK1'</span>,</span>
-<span>  group.by <span class="op">=</span> <span class="st">'snpGrade'</span>,</span>
-<span>  split.by <span class="op">=</span> <span class="st">'patient_donor'</span>,</span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,         <span class="co"># Only show SNPs with alt fraction ≥ 0.2</span></span>
-<span>  plot_density <span class="op">=</span> <span class="cn">TRUE</span>         <span class="co"># Include density plots</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<p><img src="SNP_plot_JAK1_density.png"></p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Get SNP data for JAK1 as a data frame</span></span>
-<span><span class="va">jak1_data</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
-<span>  <span class="st">'JAK1'</span>,</span>
-<span>  group.by <span class="op">=</span> <span class="st">'snpGrade'</span>,</span>
-<span>  split.by <span class="op">=</span> <span class="st">'patient_donor'</span>,</span>
-<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
-<span>  data_out <span class="op">=</span> <span class="cn">TRUE</span>             <span class="co"># Return data frame instead of plot</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">rbind</a></span><span class="op">(</span></span>
+<span>  <span class="fu">regime</span><span class="op">(</span><span class="st">"S1 Donor vs S1 Recipient"</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Donor"</span><span class="op">)</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  <span class="fu">regime</span><span class="op">(</span><span class="st">"S1 vs S2 Recipient (same patient)"</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S2"</span> <span class="op">&amp;</span> <span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  <span class="fu">regime</span><span class="op">(</span><span class="st">"all Donor vs all Recipient"</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Donor"</span><span class="op">)</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">donor_type</span> <span class="op">==</span> <span class="st">"Recipient"</span><span class="op">)</span>,</span>
+<span>         split_by <span class="op">=</span> <span class="va">cm</span><span class="op">$</span><span class="va">sample_id</span><span class="op">)</span>,</span>
+<span>  <span class="fu">regime</span><span class="op">(</span><span class="st">"Rejection vs Stable patients"</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">condition</span> <span class="op">==</span> <span class="st">"Rejection"</span><span class="op">)</span>,</span>
+<span>         <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm</span><span class="op">$</span><span class="va">condition</span> <span class="op">==</span> <span class="st">"Stable"</span><span class="op">)</span>,</span>
+<span>         split_by <span class="op">=</span> <span class="va">cm</span><span class="op">$</span><span class="va">patient</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Save to CSV for external analysis</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/write.table.html" class="external-link">write.csv</a></span><span class="op">(</span><span class="va">jak1_data</span>, <span class="st">"JAK1_SNPs.csv"</span>, row.names <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+<span><span class="co">#&gt;                            contrast concordance genomes              verdict</span></span>
+<span><span class="co">#&gt; 1          S1 Donor vs S1 Recipient       0.499  1 vs 1    different_genomes</span></span>
+<span><span class="co">#&gt; 2 S1 vs S2 Recipient (same patient)       0.999  1 vs 1          same_genome</span></span>
+<span><span class="co">#&gt; 3        all Donor vs all Recipient       0.689  4 vs 4 heterogeneous_groups</span></span>
+<span><span class="co">#&gt; 4      Rejection vs Stable patients       0.653  2 vs 2 heterogeneous_groups</span></span></code></pre></div>
+<p>Two genomes in one library agree at about half of callable sites. The
+same person sampled twice agrees at essentially all of them. Both pooled
+contrasts are flagged <code>heterogeneous_groups</code>, because each
+side contains several unrelated individuals.</p>
 </div>
+<div class="section level2">
+<h2 id="aggregating">Aggregating<a class="anchor" aria-label="anchor" href="#aggregating"></a>
+</h2>
+<p><code><a href="../reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> works on aggregated counts, not on
+cells. There are two modes.</p>
+<p><strong>Sample-stratified</strong> (the default) keeps samples
+separate within each group, so a variant has to be consistent across
+samples rather than driven by one:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">agg</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span>group_by <span class="op">=</span> <span class="st">"condition"</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">agg</span><span class="op">$</span><span class="va">mode</span></span>
+<span><span class="co">#&gt; [1] "sample_stratified"</span></span>
+<span><span class="va">agg</span><span class="op">$</span><span class="va">metadata</span></span>
+<span><span class="co">#&gt;               group n_cells n_samples filter_status</span></span>
+<span><span class="co">#&gt; Rejection Rejection     480         3      included</span></span>
+<span><span class="co">#&gt; Stable       Stable     320         2      included</span></span></code></pre></div>
+<p><strong>Group-only</strong> pools every cell in the group. Set
+<code>sample_column = NULL</code>:</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">agg_pooled</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span>group_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
+<span>                                       sample_column <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">agg_pooled</span><span class="op">$</span><span class="va">mode</span></span>
+<span><span class="co">#&gt; [1] "group_only"</span></span></code></pre></div>
+<p>Use sample-stratified for anything crossing samples. Group-only pools
+across individuals, and in the real cohort its within-group concordance
+(0.52) was <em>lower</em> than the between-group value (0.723) — the
+groups were less internally consistent than they were different from
+each other.</p>
+<p>Other useful arguments:</p>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span></span>
+<span>  group_by            <span class="op">=</span> <span class="st">"condition"</span>,</span>
+<span>  sample_column       <span class="op">=</span> <span class="st">"sample_id"</span>,</span>
+<span>  donor_type          <span class="op">=</span> <span class="st">"Donor"</span>,   <span class="co"># restrict to one genome</span></span>
+<span>  min_cells_per_group <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>  use_normalized      <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span></code></pre></div>
 </div>
+<div class="section level2">
+<h2 id="the-valid-contrast-two-genomes-in-one-library">The valid contrast: two genomes in one library<a class="anchor" aria-label="anchor" href="#the-valid-contrast-two-genomes-in-one-library"></a>
+</h2>
+<p>Subset to a single sample, then split on genotype:</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">s1</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">subsetVariantCell</span><span class="op">(</span>column <span class="op">=</span> <span class="st">"sample_id"</span>, values <span class="op">=</span> <span class="st">"S1"</span><span class="op">)</span></span>
+<span><span class="va">agg_s1</span> <span class="op">&lt;-</span> <span class="va">s1</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span>group_by <span class="op">=</span> <span class="st">"donor_type"</span><span class="op">)</span></span>
+<span><span class="va">res_s1</span> <span class="op">&lt;-</span> <span class="va">s1</span><span class="op">$</span><span class="fu">findSNPsByGroup</span><span class="op">(</span></span>
+<span>  ident.1 <span class="op">=</span> <span class="st">"Donor"</span>,</span>
+<span>  ident.2 <span class="op">=</span> <span class="st">"Recipient"</span>,</span>
+<span>  aggregated_data <span class="op">=</span> <span class="va">agg_s1</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_s1</span><span class="op">$</span><span class="va">genotype_check</span><span class="op">$</span><span class="va">verdict</span></span>
+<span><span class="co">#&gt; [1] "different_genomes"</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>sites_tested <span class="op">=</span> <span class="va">res_s1</span><span class="op">$</span><span class="va">summary</span><span class="op">$</span><span class="va">total_tested</span>,</span>
+<span>  sites_passing <span class="op">=</span> <span class="va">res_s1</span><span class="op">$</span><span class="va">summary</span><span class="op">$</span><span class="va">passed_filters</span><span class="op">)</span></span>
+<span><span class="co">#&gt;  sites_tested sites_passing </span></span>
+<span><span class="co">#&gt;          1994           564</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">res_s1</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">presence</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;     Present in Donor Present in Recipient </span></span>
+<span><span class="co">#&gt;                  283                  281</span></span></code></pre></div>
+<p>Hundreds of variants are present in one genome and absent in the
+other. This is the regime the function is for, and the answer is a
+genotype call rather than a statistical claim — with one library per
+side there is no sample-level replication to compute a p-value from.
+Rank on <code>presence_score</code>:</p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">top</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_s1</span><span class="op">$</span><span class="va">results</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/order.html" class="external-link">order</a></span><span class="op">(</span><span class="op">-</span><span class="va">res_s1</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">presence_score</span><span class="op">)</span>,</span>
+<span>                           <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"chromosome"</span>, <span class="st">"position"</span>, <span class="st">"gene_name"</span>,</span>
+<span>                             <span class="st">"alt_frac_1"</span>, <span class="st">"alt_frac_2"</span>, <span class="st">"presence"</span>,</span>
+<span>                             <span class="st">"presence_score"</span><span class="op">)</span><span class="op">]</span>, <span class="fl">6</span><span class="op">)</span></span>
+<span><span class="va">top</span></span>
+<span><span class="co">#&gt;     chromosome  position gene_name alt_frac_1 alt_frac_2             presence</span></span>
+<span><span class="co">#&gt; 86           2 118942221     MARCO 0.02000000  0.9785714 Present in Recipient</span></span>
+<span><span class="co">#&gt; 87           2 118942231     MARCO 0.00000000  0.9855072 Present in Recipient</span></span>
+<span><span class="co">#&gt; 88           2 118942292     MARCO 0.00000000  1.0000000 Present in Recipient</span></span>
+<span><span class="co">#&gt; 97           2 118944910     MARCO 0.02325581  0.5312500 Present in Recipient</span></span>
+<span><span class="co">#&gt; 100          2 118970170     MARCO 0.00000000  0.5230769 Present in Recipient</span></span>
+<span><span class="co">#&gt; 101          2 118970201     MARCO 0.00000000  0.5129870 Present in Recipient</span></span>
+<span><span class="co">#&gt;     presence_score</span></span>
+<span><span class="co">#&gt; 86       0.9748193</span></span>
+<span><span class="co">#&gt; 87       0.9748193</span></span>
+<span><span class="co">#&gt; 88       0.9748193</span></span>
+<span><span class="co">#&gt; 97       0.9748193</span></span>
+<span><span class="co">#&gt; 100      0.9748193</span></span>
+<span><span class="co">#&gt; 101      0.9748193</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="the-capped-contrast-patients-against-patients">The capped contrast: patients against patients<a class="anchor" aria-label="anchor" href="#the-capped-contrast-patients-against-patients"></a>
+</h2>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_cond</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/conditions.html" class="external-link">withCallingHandlers</a></span><span class="op">(</span></span>
+<span>  <span class="va">project</span><span class="op">$</span><span class="fu">findSNPsByGroup</span><span class="op">(</span>ident.1 <span class="op">=</span> <span class="st">"Rejection"</span>, ident.2 <span class="op">=</span> <span class="st">"Stable"</span>,</span>
+<span>                          aggregated_data <span class="op">=</span> <span class="va">agg</span><span class="op">)</span>,</span>
+<span>  warning <span class="op">=</span> <span class="kw">function</span><span class="op">(</span><span class="va">w</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/conditions.html" class="external-link">invokeRestart</a></span><span class="op">(</span><span class="st">"muffleWarning"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>The guard travels with the result, so a flagged contrast is still
+recognisable when the object is read back months later:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">g</span> <span class="op">&lt;-</span> <span class="va">res_cond</span><span class="op">$</span><span class="va">genotype_check</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  verdict              <span class="op">=</span> <span class="va">g</span><span class="op">$</span><span class="va">verdict</span>,</span>
+<span>  genomes              <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">g</span><span class="op">$</span><span class="va">n_genomes1</span>, <span class="st">"vs"</span>, <span class="va">g</span><span class="op">$</span><span class="va">n_genomes2</span><span class="op">)</span>,</span>
+<span>  min_attainable_p     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">signif</a></span><span class="op">(</span><span class="va">g</span><span class="op">$</span><span class="va">min_attainable_p</span>, <span class="fl">3</span><span class="op">)</span>,</span>
+<span>  bonferroni_threshold <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">signif</a></span><span class="op">(</span><span class="va">g</span><span class="op">$</span><span class="va">bonferroni_threshold</span>, <span class="fl">3</span><span class="op">)</span>,</span>
+<span>  reachable            <span class="op">=</span> <span class="va">g</span><span class="op">$</span><span class="va">significance_reachable</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt;                verdict genomes min_attainable_p bonferroni_threshold reachable</span></span>
+<span><span class="co">#&gt; 1 heterogeneous_groups  2 vs 2            0.333             2.51e-05     FALSE</span></span></code></pre></div>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_cond</span><span class="op">$</span><span class="va">summary</span><span class="op">$</span><span class="va">significant_results</span></span>
+<span><span class="co">#&gt; [1] 0</span></span></code></pre></div>
+<p>Zero, and no amount of extra sequencing changes that.</p>
+<p>Note that the guard reports <strong>2 vs 2</strong>, not the
+three-against-two you might expect from the sample counts. The
+independent unit is the individual, not the library — <code>S1</code>
+and <code>S2</code> are the same patient, so they contribute one genome
+between them. The count comes from clustering on genotype concordance
+rather than from any patient column, so it cannot be inflated by a
+mislabelled sample.</p>
+<p>With two individuals against two, the smallest two-sided p a
+<strong>perfectly separating</strong> variant can produce is
+<code>2 / choose(4, 2)</code> = 0.333, against a Bonferroni threshold of
+roughly 2.5e-5. The ceiling depends only on the group sizes:</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">ceiling_p</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">n1</span>, <span class="va">n2</span><span class="op">)</span> <span class="fl">2</span> <span class="op">/</span> <span class="fu"><a href="https://rdrr.io/r/base/Special.html" class="external-link">choose</a></span><span class="op">(</span><span class="va">n1</span> <span class="op">+</span> <span class="va">n2</span>, <span class="va">n1</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  individuals <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"2 vs 2"</span>, <span class="st">"5 vs 4"</span>, <span class="st">"10 vs 10"</span>, <span class="st">"14 vs 14"</span><span class="op">)</span>,</span>
+<span>  best_attainable_p <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">signif</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fu">ceiling_p</span><span class="op">(</span><span class="fl">2</span>, <span class="fl">2</span><span class="op">)</span>, <span class="fu">ceiling_p</span><span class="op">(</span><span class="fl">5</span>, <span class="fl">4</span><span class="op">)</span>,</span>
+<span>                               <span class="fu">ceiling_p</span><span class="op">(</span><span class="fl">10</span>, <span class="fl">10</span><span class="op">)</span>, <span class="fu">ceiling_p</span><span class="op">(</span><span class="fl">14</span>, <span class="fl">14</span><span class="op">)</span><span class="op">)</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt;   individuals best_attainable_p</span></span>
+<span><span class="co">#&gt; 1      2 vs 2          3.33e-01</span></span>
+<span><span class="co">#&gt; 2      5 vs 4          1.59e-02</span></span>
+<span><span class="co">#&gt; 3    10 vs 10          1.08e-05</span></span>
+<span><span class="co">#&gt; 4    14 vs 14          4.99e-08</span></span></code></pre></div>
+<p>Against ~2,000 sites here — or ~739,000 in a real database — you need
+on the order of fourteen versus fourteen individuals before a perfect
+separator clears correction at all, and real association studies run to
+hundreds because nothing separates perfectly.</p>
+<p>This design is not <em>invalid</em>; it is a case-control genetic
+association study, which is a real thing. It simply cannot reach
+significance at this n, so <strong>rank hits as exploratory candidates
+rather than thresholding them</strong>. Two caveats survive at any n and
+ranking does not fix either: unrelated individuals differ in ancestry,
+which shifts allele frequencies genome-wide independently of your
+grouping variable; and if your groups differ in 10x chemistry, the two
+arms interrogate different variant space.</p>
+</div>
+<div class="section level2">
+<h2 id="the-empty-contrast">The empty contrast<a class="anchor" aria-label="anchor" href="#the-empty-contrast"></a>
+</h2>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">p1</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">subsetVariantCell</span><span class="op">(</span>column <span class="op">=</span> <span class="st">"patient"</span>, values <span class="op">=</span> <span class="st">"P1"</span><span class="op">)</span></span>
+<span><span class="va">agg_p1</span> <span class="op">&lt;-</span> <span class="va">p1</span><span class="op">$</span><span class="fu">aggregateByGroup</span><span class="op">(</span>group_by <span class="op">=</span> <span class="st">"sample_id"</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">cm1</span> <span class="op">&lt;-</span> <span class="va">p1</span><span class="op">$</span><span class="va">snp_database</span><span class="op">$</span><span class="va">cell_metadata</span></span>
+<span><span class="va">gc</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/checkGenotypeConcordance.html">checkGenotypeConcordance</a></span><span class="op">(</span></span>
+<span>  <span class="va">p1</span><span class="op">$</span><span class="va">snp_database</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm1</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S1"</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cm1</span><span class="op">$</span><span class="va">sample_id</span> <span class="op">==</span> <span class="st">"S2"</span><span class="op">)</span>,</span>
+<span>  verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>concordance <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">gc</span><span class="op">$</span><span class="va">concordance</span>, <span class="fl">3</span><span class="op">)</span>, verdict <span class="op">=</span> <span class="va">gc</span><span class="op">$</span><span class="va">verdict</span><span class="op">)</span></span>
+<span><span class="co">#&gt;   concordance       verdict </span></span>
+<span><span class="co">#&gt;       "0.947" "same_genome"</span></span></code></pre></div>
+<p><code>same_genome</code>. One person’s germline genotype does not
+change between biopsies, so there is nothing here to find and any
+apparent hit is transcript abundance or coverage. If that is what you
+want to test, use <code><a href="../reference/findDESNPs.html">findDESNPs()</a></code> — or better, ordinary
+gene-level differential expression.</p>
+</div>
+<div class="section level2">
+<h2 id="reading-the-results">Reading the results<a class="anchor" aria-label="anchor" href="#reading-the-results"></a>
+</h2>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">res_s1</span><span class="op">$</span><span class="va">results</span><span class="op">)</span></span>
+<span><span class="co">#&gt;  [1] "snp_idx"               "chromosome"            "position"             </span></span>
+<span><span class="co">#&gt;  [4] "ref"                   "alt"                   "feature_type"         </span></span>
+<span><span class="co">#&gt;  [7] "gene_name"             "gene_type"             "depth_1"              </span></span>
+<span><span class="co">#&gt; [10] "depth_2"               "alt_count_1"           "alt_count_2"          </span></span>
+<span><span class="co">#&gt; [13] "alt_frac_1"            "alt_frac_2"            "alt_frac_diff"        </span></span>
+<span><span class="co">#&gt; [16] "n_samples_1"           "n_samples_2"           "samples_present_1"    </span></span>
+<span><span class="co">#&gt; [19] "samples_present_2"     "samples_absent_1"      "samples_absent_2"     </span></span>
+<span><span class="co">#&gt; [22] "pct_samples_present_1" "pct_samples_present_2" "sample_consistency"   </span></span>
+<span><span class="co">#&gt; [25] "presence_score"        "presence"              "p_value"              </span></span>
+<span><span class="co">#&gt; [28] "effect_size"           "depth_cv"              "alt_frac_consistency" </span></span>
+<span><span class="co">#&gt; [31] "sample_coverage"       "overall_quality"       "p_adjusted"           </span></span>
+<span><span class="co">#&gt; [34] "significant"</span></span></code></pre></div>
+<p>The columns worth knowing:</p>
+<ul>
+<li>
+<code>alt_frac_1</code> / <code>alt_frac_2</code> — alternative
+allele fraction in each group.</li>
+<li>
+<code>presence</code> — which group the variant was called present
+in.</li>
+<li>
+<code>presence_score</code> — composite of alt-fraction difference,
+sample consistency and coverage. This is the ranking statistic.</li>
+<li>
+<code>sample_consistency</code> — fraction of samples in the group
+agreeing. Meaningless when a group has one sample.</li>
+<li>
+<code>p_value</code> / <code>p_adjusted</code> /
+<code>significant</code> — only interpretable when the design can
+actually reach significance. Check <code>genotype_check</code>
+first.</li>
+<li>
+<code>depth_1</code> / <code>depth_2</code> — summed depth. Note
+this is <code>rowSums</code> <strong>across samples</strong>, so
+<code>min_depth = 10</code> over eleven samples is a weak per-sample
+guarantee.</li>
+</ul>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/write.table.html" class="external-link">write.csv</a></span><span class="op">(</span><span class="va">res_s1</span><span class="op">$</span><span class="va">results</span>, <span class="st">"SNPs_donor_vs_recipient_S1.csv"</span>, row.names <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="visualising-snps-in-a-gene">Visualising SNPs in a gene<a class="anchor" aria-label="anchor" href="#visualising-snps-in-a-gene"></a>
+</h2>
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
+<span>  <span class="st">"CD74"</span>,</span>
+<span>  group.by     <span class="op">=</span> <span class="st">"compartment"</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  plot_density <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Loading required package: ggplot2</span></span>
+<span><span class="co">#&gt; Loading required package: cowplot</span></span>
+<span><span class="co">#&gt; Warning: rs# identifiers requested but not available in project. Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; Warning: Population AF requested but not available in project. Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Retrieving gene coordinates for CD74...</span></span>
+<span><span class="co">#&gt; Processing SNP data for gene CD74...</span></span>
+<span><span class="co">#&gt; Processing group 1/5: Endothelial</span></span>
+<span><span class="co">#&gt; Processing group 2/5: Epithelial</span></span>
+<span><span class="co">#&gt; Processing group 3/5: Lymphoid</span></span>
+<span><span class="co">#&gt; Processing group 4/5: Myeloid</span></span>
+<span><span class="co">#&gt; Processing group 5/5: Stromal</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Plotting Summary:</span></span>
+<span><span class="co">#&gt; Total SNPs: 174</span></span>
+<span><span class="co">#&gt; Feature types:</span></span>
+<span><span class="co">#&gt; exonic </span></span>
+<span><span class="co">#&gt;    870</span></span></code></pre></div>
+<p><img src="group_level_DE_files/figure-html/plot-basic-1.png" class="r-plt" alt="" width="672"></p>
+<p>Point position is genomic coordinate, colour is alternative allele
+fraction, and size is read depth.</p>
+<p>Split within each group to compare genotypes side by side:</p>
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
+<span>  <span class="st">"CD74"</span>,</span>
+<span>  group.by     <span class="op">=</span> <span class="st">"condition"</span>,</span>
+<span>  split.by     <span class="op">=</span> <span class="st">"donor_type"</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0.2</span>,</span>
+<span>  plot_density <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: rs# identifiers requested but not available in project. Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; Warning: Population AF requested but not available in project. Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Retrieving gene coordinates for CD74...</span></span>
+<span><span class="co">#&gt; Processing SNP data for gene CD74...</span></span>
+<span><span class="co">#&gt; Processing group 1/2: Rejection</span></span>
+<span><span class="co">#&gt; Creating data frame with: 139 valid SNPs</span></span>
+<span><span class="co">#&gt;  - alt_fractions length: 139</span></span>
+<span><span class="co">#&gt;  - depth_filtered length: 139</span></span>
+<span><span class="co">#&gt; Creating data frame with: 132 valid SNPs</span></span>
+<span><span class="co">#&gt;  - alt_fractions length: 132</span></span>
+<span><span class="co">#&gt;  - depth_filtered length: 132</span></span>
+<span><span class="co">#&gt; Processing group 2/2: Stable</span></span>
+<span><span class="co">#&gt; Creating data frame with: 146 valid SNPs</span></span>
+<span><span class="co">#&gt;  - alt_fractions length: 146</span></span>
+<span><span class="co">#&gt;  - depth_filtered length: 146</span></span>
+<span><span class="co">#&gt; Creating data frame with: 151 valid SNPs</span></span>
+<span><span class="co">#&gt;  - alt_fractions length: 151</span></span>
+<span><span class="co">#&gt;  - depth_filtered length: 151</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Plotting Summary:</span></span>
+<span><span class="co">#&gt; Total SNPs: 169</span></span>
+<span><span class="co">#&gt; Feature types:</span></span>
+<span><span class="co">#&gt; exonic </span></span>
+<span><span class="co">#&gt;    568</span></span>
+<span><span class="co">#&gt; Warning: `aes_string()` was deprecated in ggplot2 3.0.0.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Please use tidy evaluation idioms with `aes()`.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> See also `vignette("ggplot2-in-packages")` for more information.</span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> The deprecated feature was likely used in the <span style="color: #0000BB;">variantCell</span> package.</span></span>
+<span><span class="co">#&gt;   Please report the issue at <span style="color: #0000BB; font-style: italic;">&lt;https://github.com/cchmc/variantCell/issues&gt;</span>.</span></span>
+<span><span class="co">#&gt; <span style="color: #555555;">This warning is displayed once per session.</span></span></span>
+<span><span class="co">#&gt; <span style="color: #555555;">Call `lifecycle::last_lifecycle_warnings()` to see where this warning was</span></span></span>
+<span><span class="co">#&gt; <span style="color: #555555;">generated.</span></span></span></code></pre></div>
+<p><img src="group_level_DE_files/figure-html/plot-split-1.png" class="r-plt" alt="" width="672"></p>
+<p>Or take the underlying data frame instead of the plot:</p>
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">jak1</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">plotSNPs</span><span class="op">(</span></span>
+<span>  <span class="st">"JAK1"</span>,</span>
+<span>  group.by     <span class="op">=</span> <span class="st">"compartment"</span>,</span>
+<span>  min_alt_frac <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  data_out     <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: rs# identifiers requested but not available in project. Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; Warning: Population AF requested but not available in project. Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Retrieving gene coordinates for JAK1...</span></span>
+<span><span class="co">#&gt; Processing SNP data for gene JAK1...</span></span>
+<span><span class="co">#&gt; Processing group 1/5: Endothelial</span></span>
+<span><span class="co">#&gt; Processing group 2/5: Epithelial</span></span>
+<span><span class="co">#&gt; Processing group 3/5: Lymphoid</span></span>
+<span><span class="co">#&gt; Processing group 4/5: Myeloid</span></span>
+<span><span class="co">#&gt; Processing group 5/5: Stromal</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Plotting Summary:</span></span>
+<span><span class="co">#&gt; Total SNPs: 180</span></span>
+<span><span class="co">#&gt; Feature types:</span></span>
+<span><span class="co">#&gt; exonic </span></span>
+<span><span class="co">#&gt;    900 </span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; rs# identifiers requested but not available. Use buildSNPDatabase(add_rs_ids = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="co">#&gt; Population AF requested but not available. Use buildSNPDatabase(add_population_AF = TRUE, VCF_file_path = '...') to add them.</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">jak1</span>, <span class="fl">4</span><span class="op">)</span></span>
+<span><span class="co">#&gt;         group split snp_idx chromosome position ref alt feature_type gene_name</span></span>
+<span><span class="co">#&gt; 1 Endothelial    NA     164          1 64833234   C   G       exonic      JAK1</span></span>
+<span><span class="co">#&gt; 2 Endothelial    NA     165          1 64833244   A   T       exonic      JAK1</span></span>
+<span><span class="co">#&gt; 3 Endothelial    NA     166          1 64833254   G   A       exonic      JAK1</span></span>
+<span><span class="co">#&gt; 4 Endothelial    NA     167          1 64833264   C   G       exonic      JAK1</span></span>
+<span><span class="co">#&gt;        gene_type depth alt_fraction n_cells</span></span>
+<span><span class="co">#&gt; 1 protein_coding    45   0.97777778      34</span></span>
+<span><span class="co">#&gt; 2 protein_coding    45   0.02222222      37</span></span>
+<span><span class="co">#&gt; 3 protein_coding    41   0.41463415      28</span></span>
+<span><span class="co">#&gt; 4 protein_coding    41   0.36585366      35</span></span></code></pre></div>
+<p><code><a href="../reference/plotSNPs.html">plotSNPs()</a></code> looks the gene up in
+<code>EnsDb.Hsapiens.v86</code>, so it needs a symbol that resolves to
+exactly one record. Genes with alternative-haplotype or readthrough
+entries — <code>HLA-A</code>, <code>B2M</code>, <code>PTPRC</code> —
+return several and will not plot.</p>
+</div>
+<div class="section level2">
+<h2 id="testing-allele-fraction-instead">Testing allele fraction instead<a class="anchor" aria-label="anchor" href="#testing-allele-fraction-instead"></a>
+</h2>
+<p>If your question is about the <em>fraction</em> of reads carrying the
+alternative base rather than presence or absence — RNA editing rate,
+allele-specific expression, mitochondrial heteroplasmy — that is a
+different statistic, and <code>R/09-allele-fraction.R</code> provides
+it. The unit of observation is the sample, not the cell:</p>
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">idx</span> <span class="op">&lt;-</span> <span class="va">project</span><span class="op">$</span><span class="fu">computeAlleleFractionIndex</span><span class="op">(</span>group_by <span class="op">=</span> <span class="st">"donor_type"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Aggregating 1994 sites over 10 pseudobulks...</span></span>
+<span><span class="co">#&gt; Returned 10 pseudobulks across 5 sample_id units.</span></span>
+<span><span class="co">#&gt; Paired test over 5 units floors at p = 0.0625.</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">idx</span>, <span class="fl">4</span><span class="op">)</span></span>
+<span><span class="co">#&gt;   split group n_cells n_sites total_ad total_dp     index</span></span>
+<span><span class="co">#&gt; 1    S1 Donor      72    1994    67691   134814 0.5021066</span></span>
+<span><span class="co">#&gt; 2    S2 Donor      72    1993    69884   138887 0.5031716</span></span>
+<span><span class="co">#&gt; 3    S3 Donor      70    1994    67003   129535 0.5172579</span></span>
+<span><span class="co">#&gt; 4    S4 Donor      72    1992    72198   136979 0.5270735</span></span></code></pre></div>
+<p>One index per pseudobulk means one statistic, so there is no
+genome-wide correction to pay — which is why it works at cohort sizes
+where a per-site scan cannot. <code><a href="../reference/findDEAlleleFraction.html">findDEAlleleFraction()</a></code> tests
+sites individually and reports the same attainable-p ceiling before you
+commit to it.</p>
+</div>
+<div class="section level2">
+<h2 id="next">Next<a class="anchor" aria-label="anchor" href="#next"></a>
+</h2>
+<ul>
+<li>
+<strong>Cell-level DE SNP analysis</strong> —
+<code><a href="../reference/findDESNPs.html">findDESNPs()</a></code>, and why it is not a discovery scan.</li>
+<li>
+<strong>Determining donor and recipient cells</strong> — getting the
+genotype labels right in the first place.</li>
+</ul>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

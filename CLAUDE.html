@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="index.html">variantCell</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.3</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -373,13 +373,18 @@
 │   ├── 04-DE-SNP.R            # SNP analysis functions
 │   ├── 05-plots.R             # Visualization functions
 │   ├── 06-utils.R             # Utility functions
-│   └── 07-donor-inference.R   # Donor/Recipient inference from Vireo + composition
+│   ├── 07-donor-inference.R   # Donor/Recipient inference from Vireo + composition
+│   ├── 08-genotype-qc.R       # checkGenotypeConcordance - the three-regime guard
+│   ├── 09-allele-fraction.R   # AD/DP testing (editing, ASE, heteroplasmy)
+│   ├── 10-import-cellsnp.R    # non-germline cellsnp import (no vireo)
+│   └── 11-simulate.R          # simulateVariantCellData - makes examples runnable
 ├── History/                    # gitignored - interactive session logs
-├── vignettes/
-│   ├── build_snp_database.Rmd # Database building tutorial
-│   ├── donor_recipient.Rmd    # Donor/recipient identification
-│   ├── cell_level_DE.Rmd      # Cell-level analysis
-│   └── group_level_DE.Rmd     # Group-level analysis
+├── tests/testthat/             # 197 assertions across 6 files
+├── vignettes/                  # all four executable as of 08/13/26
+│   ├── build_snp_database.Rmd # import path, addSampleData + buildSNPDatabase
+│   ├── donor_recipient.Rmd    # inferDonorType, validated against known truth
+│   ├── cell_level_DE.Rmd      # findDESNPs, plotSNPHeatmap, getCellsForSNPs
+│   └── group_level_DE.Rmd     # findSNPsByGroup, the genotype guard, plotSNPs
 └── CLAUDE.md                   # This documentation</code></pre>
 </div>
 <div class="section level2">
@@ -397,13 +402,14 @@
 <li>
 <strong>Set Identity</strong>: <code><a href="reference/setProjectIdentity.html">setProjectIdentity()</a></code> to define cell groupings</li>
 <li>
-<strong>Analyze</strong>: Use <code><a href="reference/findDESNPs.html">findDESNPs()</a></code> or <code><a href="reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> for SNP analysis</li>
+<strong>Check the regime</strong>: <code><a href="reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> before any presence/absence contrast — it decides whether the question is answerable at all</li>
 <li>
-<strong>Visualize</strong>: Create plots with <code><a href="reference/plotSNPs.html">plotSNPs()</a></code> or <code><a href="reference/plotSNPHeatmap.html">plotSNPHeatmap()</a></code>
+<strong>Analyze</strong>: <code><a href="reference/findSNPsByGroup.html">findSNPsByGroup()</a></code> for genotype, <code><a href="reference/findDESNPs.html">findDESNPs()</a></code> for depth at a <em>targeted</em> gene, <code><a href="reference/computeAlleleFractionIndex.html">computeAlleleFractionIndex()</a></code> for AD/DP</li>
+<li>
+<strong>Visualize</strong>: <code><a href="reference/plotSNPs.html">plotSNPs()</a></code> or <code><a href="reference/plotSNPHeatmap.html">plotSNPHeatmap()</a></code>
 </li>
-<li>
-<strong>Prioritize</strong>: <code>prioritizeSNPs()</code> to rank variants</li>
-</ol><div class="section level3">
+</ol><p>Every step runs end to end in the vignettes against <code><a href="reference/simulateVariantCellData.html">simulateVariantCellData()</a></code>, which needs no external data.</p>
+<div class="section level3">
 <h3 id="note-on-addsampledatadata_type--dataframe">Note on <code>addSampleData(data_type = "dataframe")</code>
 <a class="anchor" aria-label="anchor" href="#note-on-addsampledatadata_type--dataframe"></a></h3>
 <p>It requires <code>rownames(metadata_df) == prefix_text + barcode</code>, and <code>vireo_path</code> points at the <code>donor_ids.tsv</code> <strong>file</strong>, not its directory. Derive <code>prefix_text</code> by stripping the barcode off the existing cell name (<code>substr(cn, 1, nchar(cn) - nchar(barcode))</code>) rather than rebuilding it from metadata columns — cell names in a merged object are baked at merge time and can carry stale labels that no longer match the current metadata.</p>
@@ -524,6 +530,45 @@
 <li>
 <strong>Legitimate as the coverage companion</strong> to <code><a href="reference/findSNPsByGroup.html">findSNPsByGroup()</a></code>, and as a coverage-comparability check before <code><a href="reference/computeAlleleFractionIndex.html">computeAlleleFractionIndex()</a></code>.</li>
 </ul><p><strong>Unexploited and genuinely unique to this data:</strong> depth <em>ratios between sites within one gene</em> give 3’UTR length / alternative polyadenylation, and ~12.5% of sites sit outside annotated genes. Gene counts cannot see either. No current function extracts them — <code>findDESNPs</code> tests one site against groups, not sites against each other. That is the one real gap in this area.</p>
+</div>
+<div class="section level2">
+<h2 id="vignettes-made-executable-081326">Vignettes Made Executable (08/13/26)<a class="anchor" aria-label="anchor" href="#vignettes-made-executable-081326"></a></h2>
+<p>All four vignettes were <code>eval=FALSE</code> across <strong>24 of 24 chunks</strong>. They pasted function <em>signatures</em> as if they were code, and two contained <code>\dontrun{</code> — Rd syntax — inside R chunks with unbalanced braces. Nothing in the repo ran the public API end to end.</p>
+<p>Now <strong>71 of 78 chunks execute</strong>. The seven that do not need a multi-gigabyte reference VCF or the reader’s own Seurat object, and each says so in the prose.</p>
+<div class="section level3">
+<h3 id="simulatevariantcelldata-r11-simulater">
+<code>simulateVariantCellData()</code> (<code>R/11-simulate.R</code>)<a class="anchor" aria-label="anchor" href="#simulatevariantcelldata-r11-simulater"></a></h3>
+<p>The enabling piece. Writes a synthetic experiment <strong>as files</strong> — <code>cellSNP.base.vcf</code>, <code>cellSNP.samples.tsv</code>, AD/DP/OTH MatrixMarket matrices, one <code>donor_ids.tsv</code> per sample — so vignettes exercise the real parsing path rather than reaching into the object. 5 samples / 4 patients / 800 cells / ~2,000 sites, ~12 s end to end.</p>
+<p>Design points that matter:</p>
+<ul><li>
+<strong>Sites sit at real exon coordinates</strong> pulled from <code>EnsDb.Hsapiens.v86</code>, so <code>annotate_snps()</code> assigns real gene names and <code>plotSNPs(gene = "CD74")</code> works. The gene panel avoids symbols with alt-contig or readthrough duplicates (<code>HLA-A</code>, <code>B2M</code>, <code>PTPRC</code>, <code>EPCAM</code>) — those return several records and break <code><a href="reference/plotSNPs.html">plotSNPs()</a></code>, which calls <code><a href="https://rdrr.io/r/stats/start.html" class="external-link">start()</a></code>/<code><a href="https://rdrr.io/r/stats/start.html" class="external-link">end()</a></code> on the lookup result.</li>
+<li>
+<strong>Genotypes are drawn under HWE from AF &gt; 0.05</strong>, matching the common-variant panel constraint; per-cell alt counts are binomial with a 1% error rate, so nothing separates perfectly.</li>
+<li>
+<strong>Which genome Vireo calls <code>donor0</code> is randomised per sample</strong>, reproducing the real trap. Ground truth is returned in <code>$truth</code>.</li>
+<li>Depth carries a per-gene immune/structural shift, which is the signal <code><a href="reference/findDESNPs.html">findDESNPs()</a></code> exists to detect.</li>
+<li>Denser than real 10x (~56% non-zero vs a few percent) so a small example still exercises everything.</li>
+</ul><p>Validation against the real cohort, all reproduced by the vignettes: <code><a href="reference/inferDonorType.html">inferDonorType()</a></code> 5/5 including the flipped sample; concordance 0.499 / 0.999 / 0.689 against the real 0.611 / 0.992 / 0.723; <code><a href="reference/findDESNPs.html">findDESNPs()</a></code> recovers the simulated depth ordering at <strong>r = 0.995</strong>.</p>
+</div>
+<div class="section level3">
+<h3 id="four-defects-found-by-running-the-code">Four defects found by running the code<a class="anchor" aria-label="anchor" href="#four-defects-found-by-running-the-code"></a></h3>
+<p>All four were silent. None was a test failure.</p>
+<p><strong>1. <code>annotate_snps()</code> attached transcript IDs to the wrong SNPs.</strong> <code>annotations$transcript_ids[chunk_indices] &lt;- vapply(split(tx_id, chunk_indices), ...)</code> indexed the LHS with one element per <em>overlap</em> and the RHS with one per distinct <em>SNP</em>, so R recycled. Measured on a 16-SNP fixture spanning two chromosomes: <strong>10 of 16 SNPs carried transcripts from the other chromosome.</strong> Surfaced only as a “number of items to replace is not a multiple of replacement length” warning on a passing run. <code>exon_ids</code> was aligned but last-wins, discarding overlapping exons; both now collapse via the <code><a href="https://rdrr.io/r/base/split.html" class="external-link">split()</a></code> names.</p>
+<p><strong>2. The genotype guard was inert in the normal case.</strong> <code>genotype_contrast_guard()</code> resolved idents against <code>current_project_ident</code>, but the contrast is defined by whatever <code><a href="reference/aggregateByGroup.html">aggregateByGroup()</a></code> grouped on — and aggregating by <code>condition</code> while the identity is <code>cell_type</code> is the <em>common</em> case. The lookup matched no cells, <code><a href="reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> errored, the <code>tryCatch</code> swallowed it, and <code>findSNPsByGroup(check_genotype = TRUE)</code> returned <code>$genotype_check = NULL</code>. <strong>The documented default protection did nothing.</strong> Now takes <code>group_col</code> and <code>donor_type</code> from <code>aggregated_data$parameters</code>, and warns rather than returning NULL when it cannot resolve.</p>
+<p><strong>3. <code><a href="reference/getCellsForSNPs.html">getCellsForSNPs()</a></code> never implemented its documented interface.</strong> Every example in the roxygen and <code>man/</code> used <code>"1:12345"</code>, but only <code>CHROM_POS_REF_ALT</code> and rs IDs matched — so every documented example returned <code>character(0)</code> with a warning. Added <code>chromosome:position</code> (with optional <code>chr</code> prefix). Separately, an identifier resolving to several rows — which any rs ID at a multi-allelic position does — indexed without <code>drop = FALSE</code> and yielded a <em>matrix</em>, so <code>dp_row &gt; 0</code>, <code>length(dp_row)</code> and the alt fraction all ran over the whole matrix. Alt counts now pool across alleles; DP is counted once.</p>
+<p><strong>4. <code><a href="reference/plotSNPs.html">plotSNPs()</a></code> clipped its own axis labels.</strong> Group/split labels were anchored near the right of the left gutter with <code>hjust = 1</code>, growing leftward past <code>x_min</code>, where <code>scale_x_continuous(limits=)</code> clipped them. “Endothelial” rendered as <strong>“lial”</strong> and “Recipient” as <strong>“cipient”</strong>. Now anchored at the left edge with <code>hjust = 0</code> and a wider gutter. <code>05-plots.R</code> is 1,142 lines and had never been executed by anything.</p>
+<p>Also silenced a <code>promoters()</code> out-of-bound warning that fired on every <code><a href="reference/buildSNPDatabase.html">buildSNPDatabase()</a></code> call — it comes from unplaced scaffolds in the EnsDb gene set, not from user data.</p>
+</div>
+<div class="section level3">
+<h3 id="tests-3">Tests<a class="anchor" aria-label="anchor" href="#tests-3"></a></h3>
+<p><code>test-annotateSNPs.R</code> (new) and <code>test-getCellsForSNPs.R</code> (new); guard cases appended to <code>test-checkGenotypeConcordance.R</code>. Suite went <strong>102 -&gt; 197 assertions across 6 files</strong>. <code>R CMD check</code> Status: OK.</p>
+</div>
+<div class="section level3">
+<h3 id="version-013">Version 0.1.3<a class="anchor" aria-label="anchor" href="#version-013"></a></h3>
+<p>Bumped for this work specifically because defect 1 <strong>changes stored output</strong>. Any database built at 0.1.2 or earlier has <code>transcript_ids</code> scrambled across SNPs, and <code>exon_ids</code> truncated to one arbitrary overlapping exon. Without the bump, two databases both labelled 0.1.2 would differ with nothing to distinguish them.</p>
+<p><code>gene_name</code> was never affected — it was aligned, only last-wins on overlapping genes — so <code><a href="reference/plotSNPs.html">plotSNPs()</a></code>, <code><a href="reference/findDESNPs.html">findDESNPs()</a></code> and everything gene-level is unaffected. <strong>Rebuild only if something downstream read <code>transcript_ids</code>.</strong></p>
+<p><strong>The lesson is the one already in this file:</strong> two of these four surfaced only as warnings on a green suite, and two only when a human looked at a rendered plot. Executable documentation is a test harness.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="science-direction-as-of-081226">Science Direction (as of 08/12/26)<a class="anchor" aria-label="anchor" href="#science-direction-as-of-081226"></a></h2>

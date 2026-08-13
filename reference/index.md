@@ -48,6 +48,8 @@
   Seurat object
 - [`setProjectIdentity`](https://github.com/cchmc/variantCell/reference/setProjectIdentity.md)
   : setProjectIdentity: Set Project-Wide Cell Identity Variable
+- [`simulateVariantCellData()`](https://github.com/cchmc/variantCell/reference/simulateVariantCellData.md)
+  : Simulate a cellSNP-lite plus Vireo dataset
 - [`subsetVariantCell`](https://github.com/cchmc/variantCell/reference/subsetVariantCell.md)
   : subsetVariantCell: Subset Cells Based on Metadata Values
 - [`variantCellFromCellSNP()`](https://github.com/cchmc/variantCell/reference/variantCellFromCellSNP.md)

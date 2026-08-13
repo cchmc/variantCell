@@ -10,8 +10,11 @@ patterns.
 
 - snp_ids:
 
-  Character vector. SNP identifiers to query. Can be chromosome:position
-  format (e.g., "1:12345") or rs IDs if available in the database.
+  Character vector. SNP identifiers to query. Three forms are accepted,
+  tried in this order: the full `CHROM_POS_REF_ALT` key as it appears in
+  `snp_info$snp_id`; an rs identifier, if the database was built with
+  `add_rs_ids = TRUE`; or `chromosome:position` (e.g. "1:12345"), with
+  or without a "chr" prefix.
 
 - min_alt_frac:
 
@@ -62,9 +65,12 @@ specified SNPs within defined thresholds. It's particularly useful for:
 
 - Quality control based on read depth requirements
 
-The function handles both chromosome:position identifiers and rs IDs if
-the database was built with rs ID annotation. SNPs are matched using
-exact string matching on the SNP identifier.
+An rs identifier or a `chromosome:position` can resolve to more than one
+row, since a position may carry several alternative alleles. In that
+case the alternative counts are pooled across alleles and read depth,
+which is a property of the position rather than of an allele, is counted
+once. Query the full `CHROM_POS_REF_ALT` key to restrict to a single
+allele.
 
 ## Note
 
