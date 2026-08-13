@@ -4,8 +4,11 @@
 \alias{getCellsForSNPs}
 \title{getCellsForSNPs: Extract Cell IDs Based on SNP Expression Criteria}
 \arguments{
-\item{snp_ids}{Character vector. SNP identifiers to query. Can be chromosome:position
-format (e.g., "1:12345") or rs IDs if available in the database.}
+\item{snp_ids}{Character vector. SNP identifiers to query. Three forms are
+accepted, tried in this order: the full \code{CHROM_POS_REF_ALT} key as it
+appears in \code{snp_info$snp_id}; an rs identifier, if the database was built
+with \code{add_rs_ids = TRUE}; or \code{chromosome:position} (e.g. "1:12345"),
+with or without a "chr" prefix.}
 
 \item{min_alt_frac}{Numeric. Minimum alternative allele fraction threshold.
 Cells must have alt_frac >= this value to be included. Use 0 to include
@@ -43,9 +46,11 @@ specified SNPs within defined thresholds. It's particularly useful for:
 \item Quality control based on read depth requirements
 }
 
-The function handles both chromosome:position identifiers and rs IDs if the
-database was built with rs ID annotation. SNPs are matched using exact string
-matching on the SNP identifier.
+An rs identifier or a \code{chromosome:position} can resolve to more than one
+row, since a position may carry several alternative alleles. In that case the
+alternative counts are pooled across alleles and read depth, which is a property
+of the position rather than of an allele, is counted once. Query the full
+\code{CHROM_POS_REF_ALT} key to restrict to a single allele.
 }
 \note{
 \itemize{

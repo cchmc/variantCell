@@ -1,6 +1,6 @@
 ---
 title: "Determining Donor and Recipient Cells"
-date: "2025-05-12"
+author: "Andrew Potter"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Determining Donor and Recipient Cells}
@@ -8,95 +8,205 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-# Creating a new variantCell project
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
 
-If you haven't already done so, you can create a new project by using
-the command:
+```{r load, message = FALSE}
+library(variantCell)
+```
 
-```{r, eval=FALSE}
-#Create new variantCell object
+## The problem
+
+Vireo separates the cells in a multiplexed library into genotype clusters and
+labels them `donor0`, `donor1`, and so on. **Those labels carry no meaning.**
+They are assigned independently on every run, and re-processing the same data
+will happily swap them.
+
+This is not hypothetical. Re-running a 22-sample lung transplant cohort under a
+newer CellRanger version swapped the labels on **16 of 22 samples** — the same
+two cell populations, opposite labels, no error and no warning.
+
+A donor/recipient mapping recorded against one Vireo run must never be reused
+against another. Doing so silently inverts Donor and Recipient, and every
+downstream result inverts with it.
+
+`inferDonorType()` re-derives the mapping from the data every time.
+
+## How it works
+
+The graft supplies the organ's structural tissue — epithelium, endothelium,
+stroma. The recipient supplies infiltrating immune cells. So for each Vireo
+cluster, compute the fraction of its cells that are structural; the higher one
+is the donor.
+
+```{r simulate}
+sim <- simulateVariantCellData(verbose = FALSE)
+```
+
+The simulator randomises which genome Vireo calls `donor0`, exactly as a real
+run does. Here is the ground truth it recorded:
+
+```{r truth}
+sim$truth$labels
+```
+
+Now infer it, using only the cell metadata and the Vireo output:
+
+```{r infer}
+inf <- inferDonorType(
+  sim$metadata,
+  vireo_dir         = sim$vireo_dir,
+  sample_col        = "Biopsy",
+  barcode_col       = "Barcode",
+  structural_col    = "compartment",
+  structural_values = c("Epithelial", "Endothelial", "Stromal")
+)
+```
+
+The per-sample audit shows the separation it is working from:
+
+```{r mapping}
+inf$mapping[, c("sample", "n_donor0", "n_donor1",
+                "struct_frac_donor0", "struct_frac_donor1",
+                "margin", "donor0", "donor1", "call")]
+```
+
+And it recovers the truth, including the sample whose labels are flipped:
+
+```{r validate}
+truth <- sim$truth$labels
+got   <- inf$mapping[match(truth$sample, inf$mapping$sample), ]
+data.frame(
+  sample    = truth$sample,
+  simulated = ifelse(truth$donor0 == "graft", "Donor", "Recipient"),
+  inferred  = got$donor0,
+  agree     = (truth$donor0 == "graft") == (got$donor0 == "Donor")
+)
+```
+
+The separation is normally near-binary, which is why a *low* margin is treated
+as a problem rather than mild uncertainty. Samples below `min_margin` are
+reported `"ambiguous"` and left `NA` rather than guessed:
+
+```{r margin}
+range(inf$mapping$margin)
+```
+
+## Using the result
+
+`inf$donor_types` is a per-sample named vector ready to hand to
+`addSampleData()`:
+
+```{r donor-types}
+inf$donor_types[["S1"]]
+inf$donor_types[["S3"]]
+```
+
+```{r build, results = "hide", message = FALSE}
 project <- variantCell$new()
+for (s in sim$design$sample) {
+  project$addSampleData(
+    sample_id    = s,
+    vireo_path   = sim$vireo_paths[[s]],
+    cellsnp_path = sim$cellsnp_paths[[s]],
+    cell_data    = sim$metadata[sim$metadata$Biopsy == s, ],
+    data_type    = "dataframe",
+    prefix_text  = sim$prefixes[[s]],
+    donor_type   = inf$donor_types[[s]]
+  )
+}
+project$buildSNPDatabase()
 ```
 
-to initialize the project.
+With the mapping correct, the composition separates as it should:
 
-# Determining Donor / Recipient Cells in Single Cell Data
+```{r composition}
+db <- project$snp_database
+table(db$cell_metadata$donor_type, db$cell_metadata$compartment)
+```
 
-If you need to identify which cells are donor or recipient, you can use
-the process_vireo_seurat helper function (below).
+## What getting it wrong looks like
 
-```{r, eval=FALSE}
-#process vireo using Seurat metadata
-process_vireo_seurat = function(
-  seurat_obj,
-  vireo_path,
-  prefix_text
+Hard-coding `donor0 = "Donor"` for every sample produces this instead:
+
+```{r wrong}
+naive <- data.frame(
+  sample   = inf$mapping$sample,
+  inferred = inf$mapping$donor0,
+  hardcoded = "Donor",
+  result   = ifelse(inf$mapping$donor0 == "Donor", "correct", "INVERTED")
 )
+naive
 ```
 
-Usage example:
+```{r wrong-count}
+sprintf("%d of %d samples would have donor and recipient swapped",
+        sum(naive$result == "INVERTED"), nrow(naive))
+```
 
-```{r, eval=FALSE}
-sample_donor_recipient <- vCell_project$process_vireo_seurat(
-    sample,
-    vireo_path  = "donor_ids.tsv",
-    prefix_text = "prefix_text_to_add_"
+Sixteen of twenty-two in the real cohort. The failure is silent — the analysis
+runs, the plots render, and the biology is backwards for those samples.
+
+## Confirming the clusters really are two genomes
+
+The composition heuristic assumes Vireo split the library along genotype. That
+assumption is checkable directly, without any cell-type labels:
+
+```{r concordance}
+cm <- db$cell_metadata
+gc_within <- checkGenotypeConcordance(
+  db,
+  which(cm$sample_id == "S1" & cm$donor_type == "Donor"),
+  which(cm$sample_id == "S1" & cm$donor_type == "Recipient"),
+  verbose = FALSE
 )
+c(concordance = round(gc_within$concordance, 3), verdict = gc_within$verdict)
 ```
 
-This will provide output similar to below, indicating the matching cells
-in the metadata, and the cell type distribution for the donors
-identified by Vireo:
+Two genomes in one library agree at only about half the callable sites. Compare
+that with the same individual sampled twice — `S1` and `S2` are repeat biopsies
+of the same patient:
 
-> Initial cell identities in Seurat object:
->
-> Sample1 1152 Seurat object cells: 1152 Total Vireo cells: 1661
->
-> First few Seurat rownames: Patient1_AAACCCAAGTCTAGAA-1
-> Patient1_AAACGCTGTGGACAGT-1 Patient1_AAAGGATCAGTTGTTG-1
-> Patient1_AAAGGATTCCTCGCAT-1 Patient1_AAAGTCCAGCACTCCG-1
-> Patient1_AAAGTCCGTTGCATTG-1 First few metadata rownames:
-> Patient1_AAACCCAAGTCTAGAA-1 Patient1_AAACGCTGTGGACAGT-1
-> Patient1_AAAGGATCAGTTGTTG-1 Patient1_AAAGGATTCCTCGCAT-1
-> Patient1_AAAGGGCTCAAAGGTA-1 Patient1_AAAGTCCAGCACTCCG-1
->
-> Number of matching cells: 1152
+```{r concordance-same}
+gc_same <- checkGenotypeConcordance(
+  db,
+  which(cm$sample_id == "S1" & cm$donor_type == "Recipient"),
+  which(cm$sample_id == "S2" & cm$donor_type == "Recipient"),
+  verbose = FALSE
+)
+c(concordance = round(gc_same$concordance, 3), verdict = gc_same$verdict)
+```
 
-> Cell type distribution for donor1:
->
-> ```         
->   Classical Monocyte        Differentiating T            Gamma Delta T        IGSF21+ Dendritic 
->                   10                       34                       81                        9 
->      Innate Lymphoid    Intermediate Monocyte               Macrophage                     MAIT 
->                    4                        3                       29                        5 
->                 Mast                 Memory B Myeloid Dendritic Type 1 Myeloid Dendritic Type 2 
->                   13                       46                       10                       23 
->              Naive B             Naive CD4+ T             Naive CD8+ T               Neutrophil 
->                    1                       31                        2                        1 
->                   NK    Nonclassical Monocyte OLR1+ Classical Monocyte                   Plasma 
->                   14                       23                        2                       62 
-> ```
->
-> Cell type distribution for donor0:
->
-> ```         
-> Adventitial Fibroblast       Airway Smooth Muscle Alveolar Epithelial Type 1 Alveolar Epithelial Type 2 
->                      5                          1                          3                          1 
->    Alveolar Fibroblast                     Artery                      Basal                  Capillary 
->                     13                         10                         16                         38 
->     Capillary Aerocyte                   Ciliated      Differentiating Basal                     Goblet 
->                      3                          3                          1                          1 
->              Lymphatic           Microvasculature                     Mucous              Myofibroblast 
->                      1                         11                          1                          3 
->               Pericyte                     Plasma        Proliferating Basal             Proximal Basal 
->                      6                          3                          2                          3 
-> Vascular Smooth Muscle                       Vein 
->                      3                         11 
-> ```
+Near-perfect agreement, because it is one person. This is also a sample-swap
+detector: the distinct-genome count comes from clustering on concordance, not
+from any patient column, so a mislabelled sample cannot hide behind its
+metadata.
 
-In this case, the donor cells can be identified as (likely) donor0 -
-with predominantly structural lung cells, while donor1, containing
-mostly immune cells, is the recipient. This will be used as input to the
-`addSampleData` function - to specify which donor is the
-recipient/donor. This process will need to be repeated for each sample
-to determine donor/recipient, based on cell type distributions.
+## Other data types
+
+`inferDonorType()` accepts a Seurat object or a SingleCellExperiment as well as
+a data frame, and with `add_metadata = TRUE` returns the input object with
+`vireo_donor` and `donor_type` columns attached:
+
+```{r other-types, eval = FALSE}
+inf <- inferDonorType(merged_seurat, vireo_dir = "Vireo/cellranger8")
+merged_seurat <- inf$object
+```
+
+If you only want Vireo's assignments joined onto your metadata without the
+donor/recipient call, the lower-level helpers do that directly:
+
+```{r helpers, eval = FALSE}
+res <- project$process_vireo_seurat(seurat_obj, vireo_path, prefix_text)
+res <- project$process_vireo_sce(sce_obj, vireo_path, prefix_text)
+res <- project$process_vireo_dataframe(meta_df, vireo_path, prefix_text)
+```
+
+These two chunks are not evaluated because they need your own object.
+
+## Next
+
+* **Building the SNP database** — the import path in full.
+* **Group-level DE SNP analysis** — what a donor/recipient contrast can and
+  cannot answer once you have it.

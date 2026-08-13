@@ -328,25 +328,56 @@ checkGenotypeConcordance <- function(snp_database,
 #'
 #' @description
 #' Internal guard run by \code{findSNPsByGroup()}. Resolves the two idents to
-#' cell sets using the current project identity, measures genotype concordance,
-#' and warns when the contrast is not a genotype contrast. Fewer sites are used
+#' cell sets using the column \code{aggregateByGroup()} grouped on, falling back
+#' to the current project identity, measures genotype concordance, and warns
+#' when the contrast is not a genotype contrast. Fewer sites are used
 #' than the default for \code{checkGenotypeConcordance()}, since separating
 #' ~0.99 from ~0.61 needs far less evidence than the calibration itself.
 #'
 #' @keywords internal
 variantCell$set("private", "genotype_contrast_guard", function(ident.1,
                                                                ident.2 = NULL,
+                                                               group_col = NULL,
+                                                               donor_type = NULL,
                                                                n_sites = 10000,
                                                                verbose = TRUE) {
   cm <- self$snp_database$cell_metadata
-  ident_col <- self$current_project_ident
+
+  # The contrast is defined by the column aggregateByGroup() grouped on, which
+  # is frequently NOT the project identity - aggregating by "condition" while
+  # the identity is "cell_type" is the normal case. Keying on the identity
+  # instead meant which(cm$cell_type == "Rejection") came back empty, the
+  # concordance call errored, the error was swallowed, and the guard silently
+  # did nothing. Prefer the aggregation column and fall back to the identity.
+  ident_col <- if (!is.null(group_col) && group_col %in% names(cm)) {
+    group_col
+  } else {
+    self$current_project_ident
+  }
   if (is.null(cm) || is.null(ident_col) || !ident_col %in% names(cm)) {
+    warning("Genotype concordance check could not run: no usable grouping ",
+            "column. Presence/absence results are unguarded - see ",
+            "checkGenotypeConcordance().", call. = FALSE)
     return(invisible(NULL))
   }
 
-  g1 <- which(cm[[ident_col]] == ident.1)
-  g2 <- if (is.null(ident.2)) which(cm[[ident_col]] != ident.1) else
-        which(cm[[ident_col]] == ident.2)
+  # Match the cell set the test itself will use.
+  keep <- rep(TRUE, nrow(cm))
+  if (!is.null(donor_type) && "donor_type" %in% names(cm)) {
+    keep <- !is.na(cm$donor_type) & cm$donor_type %in% donor_type
+  }
+
+  g1 <- which(keep & cm[[ident_col]] == ident.1)
+  g2 <- if (is.null(ident.2)) which(keep & cm[[ident_col]] != ident.1) else
+        which(keep & cm[[ident_col]] == ident.2)
+
+  if (length(g1) == 0 || length(g2) == 0) {
+    warning("Genotype concordance check could not run: '",
+            if (length(g1) == 0) ident.1 else ident.2,
+            "' matched no cells in column '", ident_col,
+            "'. Presence/absence results are unguarded.", call. = FALSE)
+    return(invisible(NULL))
+  }
 
   res <- tryCatch(
     checkGenotypeConcordance(self$snp_database, g1, g2,

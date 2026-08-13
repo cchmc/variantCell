@@ -1215,7 +1215,10 @@ variantCell$set("public", "findSNPsByGroup", function(ident.1,
   # identity label says whether they are, so measure it before testing.
   genotype_check <- NULL
   if(check_genotype) {
-    genotype_check <- private$genotype_contrast_guard(ident.1, ident.2)
+    genotype_check <- private$genotype_contrast_guard(
+      ident.1, ident.2,
+      group_col  = aggregated_data$parameters$group_by,
+      donor_type = aggregated_data$parameters$donor_type)
   }
   
   # Check if rs# IDs are available

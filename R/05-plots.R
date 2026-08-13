@@ -622,8 +622,10 @@
                        plot_df$y_position <- y_positions$positions
                      }
 
-                     # Increase left padding for labels
-                     x_padding_left <- (range_info$end - range_info$start) * 0.15
+                     # Left gutter the group and split labels are written into.
+                     # They are drawn left-aligned from x_min (see below), so
+                     # this width is the space they actually have.
+                     x_padding_left <- (range_info$end - range_info$start) * 0.25
                      x_padding_right <- (range_info$end - range_info$start) * 0.02
                      x_min <- range_info$start - x_padding_left
                      x_max <- range_info$end + x_padding_right
@@ -658,19 +660,29 @@
                                       y = y_position,
                                       size = depth,
                                       color = alt_fraction)) +
-                       # Adjust label positions
+                       # Group and split labels live in the left gutter. They are
+                       # anchored at its left edge and grow rightwards
+                       # (hjust = 0), so a long label runs into empty gutter
+                       # instead of off the panel.
+                       #
+                       # They were previously anchored near the *right* of the
+                       # gutter with hjust = 1, growing leftwards past x_min,
+                       # where scale_x_continuous(limits=) clipped them:
+                       # "Endothelial" rendered as "lial" and "Recipient" as
+                       # "cipient". Nothing caught it because no vignette,
+                       # example or test had ever produced one of these plots.
                        geom_text(data = subset(y_positions$labels, label_type == "group"),
-                                 aes(x = x_min + x_padding_left * 0.1,  # Adjusted position
+                                 aes(x = x_min,
                                      y = y_position,
                                      label = group),
-                                 hjust = 1,
+                                 hjust = 0,
                                  fontface = "bold",
                                  size = 4) +
                        geom_text(data = subset(y_positions$labels, label_type == "split" & !is.na(split)),
-                                 aes(x = x_min + x_padding_left * 0.4,  # Adjusted position
+                                 aes(x = x_min + x_padding_left * 0.45,
                                      y = y_position,
                                      label = split),
-                                 hjust = 1,
+                                 hjust = 0,
                                  size = 3.5) +
                        scale_color_gradient(low = color_scheme["low"],
                                             high = color_scheme["high"],

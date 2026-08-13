@@ -1133,8 +1133,13 @@ variantCell$set("public", "annotate_snps", function(snp_info,
     genes <- genes(edb)
     exons <- exons(edb)
     transcripts <- transcripts(edb)
-    promoters <- promoters(genes, upstream = promoter_upstream,
-                           downstream = promoter_downstream)
+    # Extending upstream pushes a handful of ranges past the end of the short
+    # unplaced scaffolds in the EnsDb gene set, which warns on every single
+    # call. It is a property of the annotation, not of the user's data, and
+    # those contigs never carry SNPs, so the warning is pure noise.
+    promoters <- suppressWarnings(
+      promoters(genes, upstream = promoter_upstream,
+                downstream = promoter_downstream))
     
     # Store features for reuse
     cached_features <- list(
@@ -1205,7 +1210,13 @@ variantCell$set("public", "annotate_snps", function(snp_info,
       
       annotations$in_exon[chunk_indices] <- TRUE
       annotations$feature_type[chunk_indices] <- "exonic"
-      annotations$exon_ids[chunk_indices] <- mcols(matched_exons)$exon_id
+      # Aligned, but a SNP overlapping several exons kept only whichever landed
+      # last. Collapse them the same way transcript_ids does.
+      ex_by_snp <- vapply(
+        split(mcols(matched_exons)$exon_id, chunk_indices),
+        paste, character(1), collapse=";"
+      )
+      annotations$exon_ids[as.integer(names(ex_by_snp))] <- ex_by_snp
     }
     
     if(length(promoter_overlaps) > 0) {
@@ -1229,10 +1240,16 @@ variantCell$set("public", "annotate_snps", function(snp_info,
       matched_transcripts <- transcripts[subjectHits(transcript_overlaps)]
       
       annotations$in_transcript[chunk_indices] <- TRUE
-      annotations$transcript_ids[chunk_indices] <- vapply(
+      # split() collapses to one entry per *distinct* SNP, but chunk_indices has
+      # one element per overlap. Indexing the LHS with chunk_indices therefore
+      # recycled a shorter RHS across a longer index vector and attached
+      # transcript IDs to the wrong SNPs. Assign to the indices split() actually
+      # keyed on, recovered from its names.
+      tx_by_snp <- vapply(
         split(mcols(matched_transcripts)$tx_id, chunk_indices),
         paste, character(1), collapse=";"
       )
+      annotations$transcript_ids[as.integer(names(tx_by_snp))] <- tx_by_snp
     }
     if(length(gene_overlaps) > 0) {
       chunk_indices <- queryHits(gene_overlaps) + start_idx - 1

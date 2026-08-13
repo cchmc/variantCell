@@ -398,13 +398,18 @@ variantCell/
 │   ├── 04-DE-SNP.R            # SNP analysis functions
 │   ├── 05-plots.R             # Visualization functions
 │   ├── 06-utils.R             # Utility functions
-│   └── 07-donor-inference.R   # Donor/Recipient inference from Vireo + composition
+│   ├── 07-donor-inference.R   # Donor/Recipient inference from Vireo + composition
+│   ├── 08-genotype-qc.R       # checkGenotypeConcordance - the three-regime guard
+│   ├── 09-allele-fraction.R   # AD/DP testing (editing, ASE, heteroplasmy)
+│   ├── 10-import-cellsnp.R    # non-germline cellsnp import (no vireo)
+│   └── 11-simulate.R          # simulateVariantCellData - makes examples runnable
 ├── History/                    # gitignored - interactive session logs
-├── vignettes/
-│   ├── build_snp_database.Rmd # Database building tutorial
-│   ├── donor_recipient.Rmd    # Donor/recipient identification
-│   ├── cell_level_DE.Rmd      # Cell-level analysis
-│   └── group_level_DE.Rmd     # Group-level analysis
+├── tests/testthat/             # 197 assertions across 6 files
+├── vignettes/                  # all four executable as of 08/13/26
+│   ├── build_snp_database.Rmd # import path, addSampleData + buildSNPDatabase
+│   ├── donor_recipient.Rmd    # inferDonorType, validated against known truth
+│   ├── cell_level_DE.Rmd      # findDESNPs, plotSNPHeatmap, getCellsForSNPs
+│   └── group_level_DE.Rmd     # findSNPsByGroup, the genotype guard, plotSNPs
 └── CLAUDE.md                   # This documentation
 ```
 
@@ -417,9 +422,14 @@ variantCell/
    data, passing `donor_type = inf$donor_types[[sample]]`
 4. **Build Database**: `buildSNPDatabase()` to create unified SNP database
 5. **Set Identity**: `setProjectIdentity()` to define cell groupings
-6. **Analyze**: Use `findDESNPs()` or `findSNPsByGroup()` for SNP analysis
-7. **Visualize**: Create plots with `plotSNPs()` or `plotSNPHeatmap()`
-8. **Prioritize**: `prioritizeSNPs()` to rank variants
+6. **Check the regime**: `checkGenotypeConcordance()` before any presence/absence
+   contrast — it decides whether the question is answerable at all
+7. **Analyze**: `findSNPsByGroup()` for genotype, `findDESNPs()` for depth at a
+   *targeted* gene, `computeAlleleFractionIndex()` for AD/DP
+8. **Visualize**: `plotSNPs()` or `plotSNPHeatmap()`
+
+Every step runs end to end in the vignettes against
+`simulateVariantCellData()`, which needs no external data.
 
 ### Note on `addSampleData(data_type = "dataframe")`
 
@@ -602,6 +612,98 @@ within one gene* give 3'UTR length / alternative polyadenylation, and ~12.5% of
 sites sit outside annotated genes. Gene counts cannot see either. No current
 function extracts them — `findDESNPs` tests one site against groups, not sites
 against each other. That is the one real gap in this area.
+
+## Vignettes Made Executable (08/13/26)
+
+All four vignettes were `eval=FALSE` across **24 of 24 chunks**. They pasted
+function *signatures* as if they were code, and two contained `\dontrun{` — Rd
+syntax — inside R chunks with unbalanced braces. Nothing in the repo ran the
+public API end to end.
+
+Now **71 of 78 chunks execute**. The seven that do not need a multi-gigabyte
+reference VCF or the reader's own Seurat object, and each says so in the prose.
+
+### `simulateVariantCellData()` (`R/11-simulate.R`)
+
+The enabling piece. Writes a synthetic experiment **as files** — `cellSNP.base.vcf`,
+`cellSNP.samples.tsv`, AD/DP/OTH MatrixMarket matrices, one `donor_ids.tsv` per
+sample — so vignettes exercise the real parsing path rather than reaching into
+the object. 5 samples / 4 patients / 800 cells / ~2,000 sites, ~12 s end to end.
+
+Design points that matter:
+
+- **Sites sit at real exon coordinates** pulled from `EnsDb.Hsapiens.v86`, so
+  `annotate_snps()` assigns real gene names and `plotSNPs(gene = "CD74")` works.
+  The gene panel avoids symbols with alt-contig or readthrough duplicates
+  (`HLA-A`, `B2M`, `PTPRC`, `EPCAM`) — those return several records and break
+  `plotSNPs()`, which calls `start()`/`end()` on the lookup result.
+- **Genotypes are drawn under HWE from AF > 0.05**, matching the common-variant
+  panel constraint; per-cell alt counts are binomial with a 1% error rate, so
+  nothing separates perfectly.
+- **Which genome Vireo calls `donor0` is randomised per sample**, reproducing
+  the real trap. Ground truth is returned in `$truth`.
+- Depth carries a per-gene immune/structural shift, which is the signal
+  `findDESNPs()` exists to detect.
+- Denser than real 10x (~56% non-zero vs a few percent) so a small example still
+  exercises everything.
+
+Validation against the real cohort, all reproduced by the vignettes:
+`inferDonorType()` 5/5 including the flipped sample; concordance 0.499 /
+0.999 / 0.689 against the real 0.611 / 0.992 / 0.723; `findDESNPs()` recovers
+the simulated depth ordering at **r = 0.995**.
+
+### Four defects found by running the code
+
+All four were silent. None was a test failure.
+
+**1. `annotate_snps()` attached transcript IDs to the wrong SNPs.**
+`annotations$transcript_ids[chunk_indices] <- vapply(split(tx_id, chunk_indices), ...)`
+indexed the LHS with one element per *overlap* and the RHS with one per distinct
+*SNP*, so R recycled. Measured on a 16-SNP fixture spanning two chromosomes:
+**10 of 16 SNPs carried transcripts from the other chromosome.** Surfaced only
+as a "number of items to replace is not a multiple of replacement length"
+warning on a passing run. `exon_ids` was aligned but last-wins, discarding
+overlapping exons; both now collapse via the `split()` names.
+
+**2. The genotype guard was inert in the normal case.**
+`genotype_contrast_guard()` resolved idents against `current_project_ident`, but
+the contrast is defined by whatever `aggregateByGroup()` grouped on — and
+aggregating by `condition` while the identity is `cell_type` is the *common*
+case. The lookup matched no cells, `checkGenotypeConcordance()` errored, the
+`tryCatch` swallowed it, and `findSNPsByGroup(check_genotype = TRUE)` returned
+`$genotype_check = NULL`. **The documented default protection did nothing.** Now
+takes `group_col` and `donor_type` from `aggregated_data$parameters`, and warns
+rather than returning NULL when it cannot resolve.
+
+**3. `getCellsForSNPs()` never implemented its documented interface.**
+Every example in the roxygen and `man/` used `"1:12345"`, but only
+`CHROM_POS_REF_ALT` and rs IDs matched — so every documented example returned
+`character(0)` with a warning. Added `chromosome:position` (with optional `chr`
+prefix). Separately, an identifier resolving to several rows — which any rs ID
+at a multi-allelic position does — indexed without `drop = FALSE` and yielded a
+*matrix*, so `dp_row > 0`, `length(dp_row)` and the alt fraction all ran over
+the whole matrix. Alt counts now pool across alleles; DP is counted once.
+
+**4. `plotSNPs()` clipped its own axis labels.**
+Group/split labels were anchored near the right of the left gutter with
+`hjust = 1`, growing leftward past `x_min`, where `scale_x_continuous(limits=)`
+clipped them. "Endothelial" rendered as **"lial"** and "Recipient" as
+**"cipient"**. Now anchored at the left edge with `hjust = 0` and a wider
+gutter. `05-plots.R` is 1,142 lines and had never been executed by anything.
+
+Also silenced a `promoters()` out-of-bound warning that fired on every
+`buildSNPDatabase()` call — it comes from unplaced scaffolds in the EnsDb gene
+set, not from user data.
+
+### Tests
+
+`test-annotateSNPs.R` (new) and `test-getCellsForSNPs.R` (new); guard cases
+appended to `test-checkGenotypeConcordance.R`. Suite went **102 -> 197
+assertions across 6 files**. `R CMD check` Status: OK.
+
+**The lesson is the one already in this file:** two of these four surfaced only
+as warnings on a green suite, and two only when a human looked at a rendered
+plot. Executable documentation is a test harness.
 
 ## Science Direction (as of 08/12/26)
 

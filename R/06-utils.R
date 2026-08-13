@@ -535,8 +535,11 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 #' specified SNPs. Useful for annotating cells in Seurat or other single-cell objects
 #' based on genetic variant expression patterns.
 #'
-#' @param snp_ids Character vector. SNP identifiers to query. Can be chromosome:position
-#'   format (e.g., "1:12345") or rs IDs if available in the database.
+#' @param snp_ids Character vector. SNP identifiers to query. Three forms are
+#'   accepted, tried in this order: the full \code{CHROM_POS_REF_ALT} key as it
+#'   appears in \code{snp_info$snp_id}; an rs identifier, if the database was
+#'   built with \code{add_rs_ids = TRUE}; or \code{chromosome:position}
+#'   (e.g. "1:12345"), with or without a "chr" prefix.
 #' @param min_alt_frac Numeric. Minimum alternative allele fraction threshold.
 #'   Cells must have alt_frac >= this value to be included. Use 0 to include
 #'   cells not expressing the alternative allele. Default: 0.2.
@@ -561,9 +564,11 @@ variantCell$set("public", "downsampleVariant", function(max_cells = 1000,
 #' - Annotating cell subsets based on genetic variants for downstream analysis
 #' - Quality control based on read depth requirements
 #'
-#' The function handles both chromosome:position identifiers and rs IDs if the
-#' database was built with rs ID annotation. SNPs are matched using exact string
-#' matching on the SNP identifier.
+#' An rs identifier or a \code{chromosome:position} can resolve to more than one
+#' row, since a position may carry several alternative alleles. In that case the
+#' alternative counts are pooled across alleles and read depth, which is a
+#' property of the position rather than of an allele, is counted once. Query the
+#' full \code{CHROM_POS_REF_ALT} key to restrict to a single allele.
 #'
 #' @note
 #' - Cells must meet ALL criteria (alt_frac range AND min_dp) to be included
@@ -666,13 +671,28 @@ variantCell$set("public", "getCellsForSNPs", function(snp_ids,
   for(snp_id in snp_ids) {
     cat(sprintf("Processing SNP: %s\n", snp_id))
     
-    # Find SNP in database - check both exact match and if rs IDs exist
+    # Find SNP in database. Three accepted forms, in order of specificity:
+    # the full CHROM_POS_REF_ALT key, an rs identifier, and CHROM:POS - which
+    # the documentation has always promised but which was never implemented, so
+    # a caller following the docs got an empty result and a warning.
+    info <- self$snp_database$snp_info
     snp_idx <- NULL
-    if(snp_id %in% self$snp_database$snp_info$snp_id) {
-      snp_idx <- which(self$snp_database$snp_info$snp_id == snp_id)
-    } else if("rs_id" %in% colnames(self$snp_database$snp_info) &&
-              snp_id %in% self$snp_database$snp_info$rs_id) {
-      snp_idx <- which(self$snp_database$snp_info$rs_id == snp_id)
+    if(snp_id %in% info$snp_id) {
+      snp_idx <- which(info$snp_id == snp_id)
+    } else if("rs_id" %in% colnames(info) && snp_id %in% info$rs_id) {
+      snp_idx <- which(info$rs_id == snp_id)
+    } else if(grepl("^[^:]+:[0-9]+$", snp_id)) {
+      parts <- strsplit(snp_id, ":", fixed = TRUE)[[1]]
+      # Tolerate a "chr" prefix on either side of the comparison.
+      chrom <- sub("^chr", "", parts[1])
+      snp_idx <- which(sub("^chr", "", as.character(info$CHROM)) == chrom &
+                         as.character(info$POS) == parts[2])
+      # A position can carry more than one alternative allele; keep them all
+      # rather than silently taking the first.
+      if(length(snp_idx) > 1) {
+        cat(sprintf("  %s matches %d alleles: %s\n", snp_id, length(snp_idx),
+                    paste(info$snp_id[snp_idx], collapse = ", ")))
+      }
     }
     
     if(is.null(snp_idx) || length(snp_idx) == 0) {
@@ -692,9 +712,19 @@ variantCell$set("public", "getCellsForSNPs", function(snp_ids,
       next
     }
     
-    # Get AD and DP data for this SNP across specified cells
-    ad_row <- self$snp_database$ad_matrix[snp_idx, cell_subset]
-    dp_row <- self$snp_database$dp_matrix[snp_idx, cell_subset]
+    # A single identifier can resolve to several rows: an rs ID or a CHROM:POS
+    # covers every alternative allele recorded at that position. Indexing with a
+    # length > 1 snp_idx silently yields a matrix, and every downstream
+    # operation (dp_row > 0, length(dp_row), the alt fraction) would then run
+    # over the whole matrix rather than one site.
+    #
+    # Collapse instead: alt reads add across alleles, while DP is a property of
+    # the position and is the same on every row, so take it once.
+    ad_row <- as.numeric(Matrix::colSums(
+      self$snp_database$ad_matrix[snp_idx, cell_subset, drop = FALSE]))
+    dp_sub <- self$snp_database$dp_matrix[snp_idx, cell_subset, drop = FALSE]
+    dp_row <- if(nrow(dp_sub) == 1) as.numeric(dp_sub) else
+      as.numeric(apply(as.matrix(dp_sub), 2, max))
     
     # Calculate alt fractions
     alt_fractions <- rep(0, length(dp_row))

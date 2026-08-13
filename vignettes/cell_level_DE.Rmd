@@ -1,7 +1,6 @@
 ---
 title: "Cell-level DE SNP Analysis"
 author: "Andrew Potter"
-date: "2025-05-12"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Cell-level DE SNP Analysis}
@@ -9,101 +8,259 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-# Cell-level DE SNP Analysis
-
-Cell-level differential SNP analysis focuses on identifying differential SNP expression between cell clusters.
-
-## Find DE SNPs between cell clusters
-
-To perform cell-level DE SNP analysis, use the findDESNPs function:
-
-```{r, eval=FALSE}
-#Set up project
-
-# Creat variantCell object (if you haven't already done so)
-\dontrun{
-  # Initialize a variantCell project
-  project <- variantCell$new()
-  
-  # In practice, you would add samples and build the database first
-  # project$addSampleData(...)
-  # project$buildSNPDatabase()
-  # project$setProjectIdentity("cell_type")
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-```{r, eval=FALSE}
-
-#Set metadata column as identity
-project$setProjectIdentity("cell_type")
+```{r load, message = FALSE}
+library(variantCell)
 ```
 
-```{r, eval=FALSE}
-#find DE SNPs between cell clusters
-findDESNPs = function(ident.1, 
-                      ident.2 = NULL,
-                      donor_type = NULL,
-                      use_normalized = TRUE,    
-                      min_expr_cells = 3,        
-                      min_alt_frac = 0.2,        
-                      logfc.threshold = 0.1,     
-                      calc_p = TRUE,             
-                      p.adjust.method = "BH",
-                      return_all = TRUE,
-                      pseudocount = 1,           
-                      min.p = 1e-300,
-                      debug = FALSE,
-                      n_cores = NULL)
+## What `findDESNPs()` actually measures
+
+Read this before using it.
+
+`findDESNPs()` compares **read depth at a variant position** between cell
+groups. Depth at a position is the abundance of the transcript containing it —
+so this is an expression test, not a genotype test. Germline genotype is fixed
+within an individual and cannot differ between that individual's cell types.
+
+The measurement is real and correctly computed. The question is whether it is
+the best available instrument, and mostly it is not. Measured on 52,809 cells of
+a lung transplant cohort against the matched gene count matrix:
+
+| | |
+|---|---|
+| reads captured at SNP positions | **51.3%** of the gene matrix |
+| expressed genes with no covered SNP | **40.3%** |
+| median gene: reads retained | 20% (well-covered genes up to 90%) |
+| median gene: SNPs carried | **13** |
+| correction burden | ~739,000 sites vs ~20,000 genes = **37× stricter** |
+
+The coverage is not thin — half of all reads land at SNP positions. The problem
+is arithmetic: per test you hold roughly 1.5% of a gene's evidence while paying
+37 times the multiple-testing penalty, on 60% of the genes. **Seurat's
+`FindMarkers()` on the gene count matrix strictly dominates this for "which
+genes differ between these cell groups."**
+
+Use `findDESNPs()` for:
+
+* **A specific gene you already care about.** The multiple-testing argument
+  largely evaporates once you are not scanning.
+* **The coverage companion to `findSNPsByGroup()`** — confirming depth was
+  adequate in the group where a variant was called absent, since otherwise
+  "absent" only means "not detected".
+* **Checking coverage comparability** before comparing allele fractions, since
+  differential depth creates differential power.
+
+## Setup
+
+```{r build, results = "hide", message = FALSE}
+sim <- simulateVariantCellData(verbose = FALSE)
+inf <- inferDonorType(sim$metadata, vireo_dir = sim$vireo_dir, verbose = FALSE)
+
+project <- variantCell$new()
+for (s in sim$design$sample) {
+  project$addSampleData(
+    sample_id    = s,
+    vireo_path   = sim$vireo_paths[[s]],
+    cellsnp_path = sim$cellsnp_paths[[s]],
+    cell_data    = sim$metadata[sim$metadata$Biopsy == s, ],
+    data_type    = "dataframe",
+    prefix_text  = sim$prefixes[[s]],
+    donor_type   = inf$donor_types[[s]]
+  )
 }
+project$buildSNPDatabase()
+project$setProjectIdentity("compartment")
 ```
 
-Usage example:
+```{r idents}
+table(project$snp_database$cell_metadata$compartment)
+```
 
-```{r, eval=FALSE}
-#find DE SNPs between Trm and all others
-DE_results <- project$findDESNPs(
-  ident.1        = "Trm",
-  use_normalized = TRUE,
-  n_cores        = 15
+The simulator gave each gene a known depth difference between immune and
+structural cells, so there is a right answer to compare against.
+
+## Running the test
+
+```{r de, results = "hide", message = FALSE}
+res <- project$findDESNPs(
+  ident.1 = "Myeloid",
+  ident.2 = "Epithelial",
+  n_cores = 2
 )
 ```
 
-`ident.1` is mandatory, while `ident.2` can optionally be used to compare to a second identity. Use the `n_cores` parameter to set how many processing cores will be used.
+`findDESNPs()` returns a **list**, not a data frame:
 
-A dataframe will be returned with the DE SNP results.
-
-# Visualizing DE SNP Expression in Cell Clusters
-
-A heatmap can be generated illustrating DE SNP expression (requires ComplexHeatMap and circlize):
-
-```{r, eval=FALSE}
-#plot SNPs in heatmap
-    plotSNPHeatmap = function(
-                                  genes = NULL,
-                                  snp_indices = NULL,
-                                  group.by,
-                                  split.by = NULL,
-                                  min_alt_frac = 0.2,
-                                  scale_data = TRUE,
-                                  max_scale = 2,
-                                  cluster_rows = TRUE,
-                                  cluster_cols = TRUE,
-                                  show_rownames = TRUE,
-                                  show_colnames = TRUE,
-                                  fontsize_row = 8,
-                                  fontsize_col = 8,
-                                  exclude_empty = TRUE,  
-                                  normalize_by_cells = TRUE,  
-                                  data_out = FALSE  
-                   ) 
+```{r de-structure}
+names(res)
+de <- res$results
+dim(de)
 ```
 
-```{r, eval=FALSE}
-#plot JAK1 SNPs in heatmap (entire dataset) - using 'simple' idents
+```{r de-cols}
+colnames(de)
+```
+
+Note the column names: `log2fc`, `pvalue`, `padj` — not the Seurat spellings.
+
+```{r de-top}
+top <- head(de[order(de$padj, -abs(de$log2fc)),
+               c("gene_name", "position", "log2fc", "padj",
+                 "expr_frac_1", "expr_frac_2")], 8)
+top
+```
+
+## Does it recover the truth?
+
+Aggregate to the gene level and compare against the depth shift the simulator
+built in:
+
+```{r recovery}
+obs <- tapply(de$log2fc, de$gene_name, median, na.rm = TRUE)
+truth <- sim$sites$immune_log2[match(names(obs), sim$sites$gene)]
+cmp <- data.frame(gene = names(obs),
+                  observed = round(as.numeric(obs), 2),
+                  simulated = truth)
+cmp <- cmp[!is.na(cmp$simulated), ]
+cmp[order(cmp$simulated), ]
+```
+
+```{r recovery-cor}
+round(cor(cmp$observed, cmp$simulated), 3)
+```
+
+The ordering is recovered almost exactly. Two things are worth noticing.
+
+**The magnitudes are compressed.** With `use_normalized = TRUE` (the default),
+depth is size-factor normalised and `log1p`-transformed, so a fold change on
+that scale is much smaller than the underlying count ratio. Treat `log2fc` as an
+ordering, not as a count ratio.
+
+**A truly null gene does not come back at zero.** `VIM` was simulated with no
+difference at all, yet reads as mildly depleted in myeloid cells. That is
+compositional normalisation working correctly: immune cells carry far more
+`CD74`, `FCN1` and `VCAN` reads, which inflates their size factors and pushes
+everything else down. The same effect exists in ordinary RNA-seq. It is a reason
+to be careful with small effects, not a bug.
+
+**Almost everything is significant:**
+
+```{r sig-count}
+sprintf("%d of %d sites at padj < 0.05", sum(de$padj < 0.05, na.rm = TRUE), nrow(de))
+```
+
+That is what testing across ~800 individual cells buys you. Cells within a
+library share a genome, a capture and a sequencing run, so they are not
+independent observations; treating them as such inflates significance. This is
+the standard single-cell DE pseudoreplication problem and it is the deeper
+reason not to read this output as a discovery scan. When the unit of observation
+matters, aggregate to the sample — `computeAlleleFractionIndex()` and
+`findDEAlleleFraction()` do exactly that.
+
+## The legitimate use: one gene you already care about
+
+```{r targeted}
+cd74 <- de[de$gene_name == "CD74", ]
+sprintf("CD74: %d sites, median log2fc %.2f, %d significant",
+        nrow(cd74), median(cd74$log2fc, na.rm = TRUE),
+        sum(cd74$padj < 0.05, na.rm = TRUE))
+```
+
+Here you are not scanning, the gene is well covered, and the multiple-testing
+objection does not apply.
+
+## Useful arguments
+
+```{r args, eval = FALSE}
+project$findDESNPs(
+  ident.1         = "Myeloid",
+  ident.2         = NULL,      # NULL compares against all other cells
+  donor_type      = "Donor",   # restrict to one genome
+  use_normalized  = TRUE,      # size-factor normalised depth
+  min_expr_cells  = 3,         # sites must be seen in this many cells
+  min_alt_frac    = 0.2,       # ...at this alt fraction, to be testable
+  logfc.threshold = 0.1,
+  p.adjust.method = "BH",
+  n_cores         = 4
+)
+```
+
+`min_alt_frac` and `min_expr_cells` decide which sites are **testable**. They do
+not decide which cells contribute to the effect size — that runs over all cells
+in the group, following the Seurat convention, so the fold change and the
+p-value describe the same population.
+
+Alt fractions are always computed from raw AD/DP regardless of
+`use_normalized`, since there is no normalised AD matrix and dividing a raw
+count by a log-scaled depth does not produce a fraction.
+
+## Visualising SNPs across cell groups
+
+```{r heatmap, fig.width = 7, fig.height = 5}
 project$plotSNPHeatmap(
-  genes        = c("JAK1"),
-  group.by     = "Idents.Simple",
-  min_alt_frac = 0
+  genes         = c("CD74", "SFTPC"),
+  group.by      = "compartment",
+  min_alt_frac  = 0,
+  show_rownames = FALSE   # hundreds of sites; labels are unreadable
 )
 ```
 
-![](heatmap_JAK1.png)
+Immune compartments carry the `CD74` sites and structural compartments the
+`SFTPC` sites, which is the depth difference the simulation built in.
+
+To get the underlying matrix instead of the plot:
+
+```{r heatmap-data}
+hm <- project$plotSNPHeatmap(
+  genes        = c("CD74"),
+  group.by     = "compartment",
+  min_alt_frac = 0,
+  data_out     = TRUE
+)
+str(hm, max.level = 1)
+```
+
+## Extracting cells by SNP status
+
+`getCellsForSNPs()` returns cell IDs meeting an allele-fraction and depth
+criterion, which is how you annotate a Seurat object with variant status:
+
+Three identifier forms are accepted: the full `CHROM_POS_REF_ALT` key, an rs ID
+if you annotated against a reference VCF, and plain `chromosome:position`.
+
+```{r cells-for-snps, results = "hide"}
+info <- project$snp_database$snp_info
+# pick the best-covered site in the database
+best <- which.max(Matrix::rowSums(project$snp_database$dp_matrix))
+target <- paste(info$CHROM[best], info$POS[best], sep = ":")
+
+carriers <- project$getCellsForSNPs(
+  snp_ids      = target,
+  min_alt_frac = 0.2,
+  min_dp       = 3
+)
+```
+
+```{r cells-for-snps-attrs}
+attr(carriers, "summary")
+head(carriers[[1]], 3)
+```
+
+Those cell IDs are ready to annotate an external object:
+
+```{r annotate-seurat, eval = FALSE}
+seurat_obj$snp_status <- ifelse(colnames(seurat_obj) %in% carriers[[1]],
+                                "carrier", "non-carrier")
+```
+
+The summary distinguishes cells with *any* reads at the site from cells that
+passed both thresholds, which is the difference between "not carrying it" and
+"not covered".
+
+## Next
+
+* **Group-level DE SNP analysis** — `findSNPsByGroup()` and the genotype guard.
+* **Building the SNP database** — the import path.

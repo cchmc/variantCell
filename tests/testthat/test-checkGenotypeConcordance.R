@@ -198,3 +198,86 @@ test_that("cell ids and integer indices give the same answer", {
   expect_equal(by_idx$concordance, by_id$concordance)
   expect_equal(by_idx$verdict, by_id$verdict)
 })
+
+
+# ---------------------------------------------------------------------------
+# The guard wired into findSNPsByGroup(), added 2026-08-13.
+#
+# It resolved the contrast against current_project_ident, but the contrast is
+# actually defined by whatever column aggregateByGroup() grouped on - and
+# aggregating by "condition" while the project identity is "cell_type" is the
+# normal case, not an edge case. The lookup then matched no cells,
+# checkGenotypeConcordance() errored, the error was swallowed by a tryCatch, and
+# the documented default protection silently returned NULL.
+#
+# Found by running the group-level vignette for the first time.
+# ---------------------------------------------------------------------------
+
+# A project whose cells carry both a cell-type identity and a separate
+# condition column, with two genomes on each side of the condition split.
+# R6 privates are not reachable from outside the object; this is the standard
+# accessor for testing them.
+private_guard <- function(p, ...) {
+  p$.__enclos_env__$private$genotype_contrast_guard(..., verbose = FALSE)
+}
+
+
+guard_project <- function() {
+  db <- make_geno_db(
+    list(A = A, B = B, C = C, D = rev(A)),
+    data.frame(individual = c("A", "B", "C", "D"),
+               sample_id  = c("S1", "S2", "S3", "S4"),
+               group      = c("g1", "g1", "g2", "g2"),
+               n_cells    = rep(120, 4), stringsAsFactors = FALSE))
+  cm <- db$cell_metadata
+  cm$condition <- ifelse(cm$group == "g1", "Rejection", "Stable")
+  cm$cell_type <- rep(c("Macrophage", "Basal"), length.out = nrow(cm))
+  cm$donor_type <- rep(c("Donor", "Recipient"), length.out = nrow(cm))
+  db$cell_metadata <- cm
+
+  p <- variantCell$new()
+  p$snp_database <- db
+  p
+}
+
+
+test_that("the guard resolves the contrast against the aggregation column", {
+  p <- guard_project()
+  p$current_project_ident <- "cell_type"   # deliberately NOT the contrast column
+
+  res <- suppressWarnings(
+    private_guard(p, "Rejection", "Stable", group_col = "condition"))
+
+  expect_false(is.null(res))
+  expect_true(res$verdict %in% c("heterogeneous_groups", "different_genomes"))
+})
+
+
+test_that("a contrast column the guard cannot resolve warns instead of passing silently", {
+  p <- guard_project()
+  p$current_project_ident <- "cell_type"
+
+  # No group_col supplied, so it falls back to cell_type, where "Rejection"
+  # matches nothing. That must be audible, not a silent NULL.
+  expect_warning(
+    res <- private_guard(p, "Rejection", "Stable"),
+    "matched no cells"
+  )
+  expect_null(res)
+})
+
+
+test_that("the guard honours the donor_type restriction used for aggregation", {
+  p <- guard_project()
+  p$current_project_ident <- "condition"
+
+  full <- suppressWarnings(private_guard(p, "Rejection", "Stable"))
+  sub  <- suppressWarnings(
+    private_guard(p, "Rejection", "Stable", donor_type = "Donor"))
+
+  expect_false(is.null(sub))
+  # Restricting to one donor_type halves the cells on each side, so the guard
+  # must be measuring a different set than the unrestricted call.
+  expect_lt(sum(sub$n_cells1, sub$n_cells2),
+            sum(full$n_cells1, full$n_cells2))
+})
