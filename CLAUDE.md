@@ -701,6 +701,18 @@ set, not from user data.
 appended to `test-checkGenotypeConcordance.R`. Suite went **102 -> 197
 assertions across 6 files**. `R CMD check` Status: OK.
 
+### Version 0.1.3
+
+Bumped for this work specifically because defect 1 **changes stored output**.
+Any database built at 0.1.2 or earlier has `transcript_ids` scrambled across
+SNPs, and `exon_ids` truncated to one arbitrary overlapping exon. Without the
+bump, two databases both labelled 0.1.2 would differ with nothing to
+distinguish them.
+
+`gene_name` was never affected — it was aligned, only last-wins on overlapping
+genes — so `plotSNPs()`, `findDESNPs()` and everything gene-level is unaffected.
+**Rebuild only if something downstream read `transcript_ids`.**
+
 **The lesson is the one already in this file:** two of these four surfaced only
 as warnings on a green suite, and two only when a human looked at a rendered
 plot. Executable documentation is a test harness.
