@@ -571,6 +571,49 @@
 </div>
 </div>
 <div class="section level2">
+<h2 id="cellsnp-lite-settings-must-match-across-runs-081726">cellsnp-lite Settings Must Match Across Runs (08/17/26)<a class="anchor" aria-label="anchor" href="#cellsnp-lite-settings-must-match-across-runs-081726"></a></h2>
+<p><strong><code>--minMAF</code> is the trap.</strong> Vireo’s docs suggest <code>--minMAF 0.1</code> for mode 1a, and it looks harmless. It drops sites that are invariant <em>across the sample</em> — which are precisely the sites where two genomes AGREE — so any concordance computed against a run at different settings is meaningless.</p>
+<p>Measured on 10292-CLAD, same BAM, two runs:</p>
+<table class="table"><thead><tr><th></th>
+<th><code>--minMAF 0.1</code></th>
+<th>defaults (<code>--minMAF 0</code>)</th>
+</tr></thead><tbody><tr><td>sites</td>
+<td>28,632</td>
+<td><strong>67,345</strong></td>
+</tr><tr><td>sites at AF &lt; 0.05</td>
+<td>0.1%</td>
+<td>~46% (as cohort)</td>
+</tr><tr><td>median site AF</td>
+<td>0.425</td>
+<td>~0.14</td>
+</tr><tr><td>concordance vs other genome</td>
+<td><strong>0.258</strong></td>
+<td><strong>0.617</strong></td>
+</tr><tr><td>chance rate</td>
+<td>0.434</td>
+<td>0.403</td>
+</tr><tr><td>z vs chance</td>
+<td><strong>-34</strong></td>
+<td><strong>+54</strong></td>
+</tr><tr><td>Vireo unassigned</td>
+<td>52%</td>
+<td>41%</td>
+</tr><tr><td>Vireo allelic rates</td>
+<td>0.096/0.469/0.867</td>
+<td>0.006/0.445/0.974</td>
+</tr></tbody></table><p>The filtered run reported concordance <em>below chance</em> with hom-ref agreement 20x depleted, and the old guard called it <code>different_genomes</code>. It also distorted Vireo’s own genotype model, not just the concordance.</p>
+<p><strong>The 32-sample cohort was run at plain defaults</strong> (<code>--minCOUNT 20</code>, <code>--minMAF 0.00</code>, <code>--minLEN 30</code>, <code>--minMAPQ 20</code>). Any sample added to it must be too. See <code>/mnt/d-drive/CLAD_spatial/cellsnp/run_10292.sh</code> for the working invocation.</p>
+</div>
+<div class="section level2">
+<h2 id="guard-fix---anti-correlation-check-081726">Guard Fix - Anti-Correlation Check (08/17/26)<a class="anchor" aria-label="anchor" href="#guard-fix---anti-correlation-check-081726"></a></h2>
+<p><code><a href="reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> tested low concordance only against an upper bound, so it read <em>any</em> low value as strong evidence of distinct genomes. It returned <code>different_genomes</code> for a measurement that was arithmetically impossible.</p>
+<p><strong>The first fix attempt was wrong and the test suite caught it.</strong> Flagging <code>concordance &lt;= chance</code> fails because two <em>unrelated</em> individuals are near-independent draws per site and therefore land <strong>at</strong> chance; only relatives land above it. That version would have rejected the valid donor-vs-recipient contrasts the guard exists to approve. What no genome pair can do is land materially <em>below</em> chance, which requires anti-correlation.</p>
+<p>So the check is a binomial departure, <code>z &lt; -5</code>, computed from the two pseudobulks’ own marginal genotype distributions — no magic constant. The two real cases separate by ~90 SD: the broken run at z = -34, the valid contrast at z = +54. New outputs <code>chance_concordance</code> and <code>chance_z</code>; the invalid-measurement message names what to check, in order — matched cellsnp settings, then depth, then transposed matrices.</p>
+<p>Also fixed a fixture weakness this exposed: <code>A</code>/<code>B</code>/<code>C</code> in <code>test-checkGenotypeConcordance.R</code> disagreed in a contiguous block, so concordance depended on which sites a test subset. The sex-chromosome test masks the first 1,000, and its unmasked half sat below chance. Disagreeing sites are now spread across the genome, making concordance invariant to subsetting.</p>
+<p>Suite 197 -&gt; <strong>205 assertions</strong>, <code>test-checkGenotypeConcordance.R</code> 32 -&gt; 40.</p>
+<p><strong>Ninth silent-wrong-output defect in this package.</strong> Like most of the others it emitted a confident verdict rather than a complaint.</p>
+</div>
+<div class="section level2">
 <h2 id="science-direction-as-of-081726">Science Direction (as of 08/17/26)<a class="anchor" aria-label="anchor" href="#science-direction-as-of-081726"></a></h2>
 <p><strong>What the package is:</strong> a multi-genome single-cell analysis layer on top of cellsnp-lite/Vireo, with a transplant-specific identification module. It consumes their output and replaces neither. <code>07-donor-inference.R</code> is the only transplant-specific part — 349 of 7,665 lines. Everything else applies to any multi-donor experiment.</p>
 <p><strong>Closed. Do not re-open without new data:</strong></p>
@@ -593,7 +636,23 @@
 <p><strong>Spatial chimerism</strong> (<code>/mnt/d-drive/CLAD_spatial</code>, 189 GB, shipped Mar 2026, pipeline complete May 2026). Directly resolves the airway-restricted recipient epithelium question — sampling artifact vs anastomotic migration. Novel; nobody maps donor/recipient genotype spatially in lung transplant.</p>
 <p><strong>Not blocked</strong> — corrected 08/17/26. The platform is <strong>Curio TREKKER</strong>, which is spatial <em>positioning</em> on top of an ordinary 10x single-nuclei 3′v4 run, not a spot-based assay: it maps 10x cell barcodes to bead spatial barcodes. Genotype and transcriptome both come from the standard <code>possorted_genome_bam.bam</code>, which is present for all four samples, and position joins on the cell barcode. So the existing pipeline runs unmodified — cellsnp-lite on the BAM, Vireo, <code><a href="reference/inferDonorType.html">inferDonorType()</a></code>, then attach <code>donor_type</code> to the TREKKER coordinates. <strong>No per-spot deconvolution and no new method.</strong> The earlier “blocked on locating the spatial BAMs” note was wrong on both counts.</p>
 <p>What actually limits it is n. Confidently positioned nuclei: 20129-CTRL 7,695 (21.2%), 10292-CLAD 2,261 (10.8%), 20264-CTRL 750 (32.0%), KM-CLAD 1,225 (34.3%). <strong>Only the two CLAD samples are transplants</strong> — the controls are non-transplant donor lung, single-genome, and <code><a href="reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> will correctly call them <code>same_genome</code>. At 3.5% recipient epithelium that is order <strong>10–25 positioned recipient epithelial nuclei per CLAD sample</strong>: enough for the geometric question (one contiguous airway vs dispersed through parenchyma), which is what actually distinguishes the two explanations, but n = 2 patients and it cannot carry more than that.</p>
-<p><strong>Assay caveat:</strong> single-<strong>nuclei</strong> 3′v4 is a third chemistry for this project. Reads run 5.6–49.3% intronic and 3.4–15.6% intergenic with median UMI 782–3,167, so the variant catalog <em>expands</em> outside exons while per-cell depth drops. The 0.99 cross-chemistry concordance was measured on cytoplasmic 3′ vs 5′ only and does <strong>not</strong> transfer across the nuclei/whole-cell boundary unverified.</p>
+<p><strong>RUN 08/17/26 — the deconvolution works. Gate passed on 10292-CLAD.</strong></p>
+<table class="table"><thead><tr><th></th>
+<th>10292 (nuclei 3′v4)</th>
+<th>cohort (whole-cell 3′)</th>
+</tr></thead><tbody><tr><td>concordance, two genomes one library</td>
+<td><strong>0.617</strong></td>
+<td>0.611</td>
+</tr><tr><td>chance rate / z above chance</td>
+<td>0.403 / <strong>+54.1</strong>
+</td>
+<td>—</td>
+</tr><tr><td>composition margin</td>
+<td>0.828</td>
+<td>~0.9</td>
+</tr></tbody></table><p>donor0 was 96.2% structural (4,957/196), donor1 86.6% immune (3,766/585) — the graft/recipient split reproduced in nuclei. 9,552 of 20,890 nuclei confidently assigned. Artefacts in <code>/mnt/d-drive/CLAD_spatial/cellsnp/10292-CLAD/</code>.</p>
+<p><strong>Vireo’s arbitrary labels flipped between two runs of the same BAM on the same day</strong> — donor0 was immune-dominant in the morning run and structural in the afternoon one, the only difference being a cellsnp filter. Live confirmation of [[vireo-donor-labels-arbitrary]]; always re-run <code><a href="reference/inferDonorType.html">inferDonorType()</a></code>.</p>
+<p><strong>Assay caveat, corrected by measurement.</strong> Single-<strong>nuclei</strong> 3′v4 is a third chemistry here. Reads run 5.6–49.3% intronic and 3.4–15.6% intergenic with median UMI 782–3,167. I had predicted the variant catalog would <em>expand</em> outside exons; <strong>it contracts, by roughly 5x</strong> — 67,345 sites from 20,890 nuclei against CLAD2’s 327,307 from 24,835 whole cells. Breadth does not compensate for depth: nuclei spread reads over more positions, so fewer clear <code>--minCOUNT 20</code>. Vireo correspondingly leaves <strong>41% unassigned</strong> against a cohort range of 3–8%. The 0.99 cross-chemistry concordance was measured on cytoplasmic 3′ vs 5′ only and still has not been tested across the nuclei/whole-cell boundary — KM-CLAD is the same patient as TBX4/TBX5 and is the only route to that check, but it is also the poor-quality library, so it needs depth-matched controls (thin TBX4 to KM’s depth) or the comparison confounds assay with depth.</p>
 </li>
 <li><p><strong>Compartment-specific chimerism vs clinical outcome.</strong> One test per hypothesis, so the permutation ceiling does not bite. Clinical metadata is in the two LungChat .docx files. Check first whether the published decay is compartment-resolved.</p></li>
 <li><p><strong>Genotype QC as a standalone utility.</strong> <code><a href="reference/checkGenotypeConcordance.html">checkGenotypeConcordance()</a></code> recovers distinct-genome counts with no patient column, so a mislabelled sample cannot hide. Sample swaps are endemic in multi-donor single-cell work and there is no standard tool. Probably the most broadly citable piece after <code><a href="reference/inferDonorType.html">inferDonorType()</a></code>.</p></li>
