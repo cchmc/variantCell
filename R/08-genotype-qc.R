@@ -58,14 +58,24 @@
   n <- ncol(G)
   conc <- matrix(NA_real_, n, n, dimnames = list(colnames(G), colnames(G)))
   nsh  <- matrix(NA_integer_, n, n, dimnames = list(colnames(G), colnames(G)))
+  chance <- matrix(NA_real_, n, n, dimnames = list(colnames(G), colnames(G)))
   for (i in seq_len(n)) for (j in i:n) {
     both <- !is.na(G[, i]) & !is.na(G[, j])
     if (sum(both) >= min_shared_sites) {
       conc[i, j] <- conc[j, i] <- mean(G[both, i] == G[both, j])
       nsh[i, j]  <- nsh[j, i]  <- sum(both)
+      # Agreement expected if the two genotype vectors were independent, given
+      # their own marginal distributions. This is the FLOOR for real genomes:
+      # two unrelated individuals are close to independent draws at each site, so
+      # they land near chance, and relatives land above it. Nothing genetic lands
+      # materially BELOW chance, because that requires the two calls to be
+      # anti-correlated. See the verdict logic.
+      p_i <- table(factor(G[both, i], levels = 0:2)) / sum(both)
+      p_j <- table(factor(G[both, j], levels = 0:2)) / sum(both)
+      chance[i, j] <- chance[j, i] <- sum(as.numeric(p_i) * as.numeric(p_j))
     }
   }
-  list(concordance = conc, n_shared = nsh)
+  list(concordance = conc, n_shared = nsh, chance = chance)
 }
 
 #' @title Check whether two cell groups are genetically distinct
@@ -201,6 +211,7 @@ checkGenotypeConcordance <- function(snp_database,
   pw <- .pairwise_concordance(G, min_shared_sites)
   between <- pw$concordance["group1", "group2"]
   n_shared <- pw$n_shared["group1", "group2"]
+  between_chance <- pw$chance["group1", "group2"]
 
   # Minimum concordance among a group's own sub-pseudobulks: if the group holds
   # one individual this stays high, if it pools individuals it drops.
@@ -233,7 +244,32 @@ checkGenotypeConcordance <- function(snp_database,
   het <- (!is.na(w1) && w1 < same_genome_threshold) ||
          (!is.na(w2) && w2 < same_genome_threshold)
 
+  # Anti-correlation check, evaluated FIRST because it invalidates every other
+  # verdict. Independence is the floor for genotype: two unrelated individuals
+  # are near-independent draws per site and so land NEAR the chance rate, while
+  # relatives land above it. Landing materially below chance requires the two
+  # genotype calls to be anti-correlated, which no pair of genomes produces.
+  #
+  # Measured cause on real data (2026-08-17): a cellsnp-lite run at --minMAF 0.1
+  # compared against a cohort run at the default --minMAF 0. The filter strips
+  # sites that are invariant across the sample - precisely the sites where two
+  # genomes agree - leaving concordance 0.258 against a 0.434 chance rate, with
+  # hom-ref agreement 20x depleted. The guard reported "different_genomes",
+  # because low concordance had only ever been tested against an upper bound.
+  #
+  # Tested as a binomial departure rather than a bare inequality: sitting AT
+  # chance is the normal unrelated-individual result and must not be flagged.
+  z_chance <- if (!is.na(between) && !is.na(between_chance) &&
+                  !is.na(n_shared) && n_shared > 0 &&
+                  between_chance > 0 && between_chance < 1) {
+    (between - between_chance) /
+      sqrt(between_chance * (1 - between_chance) / n_shared)
+  } else NA_real_
+  broken <- !is.na(z_chance) && z_chance < -5
+
   verdict <- if (is.na(between)) {
+    "indeterminate"
+  } else if (broken) {
     "indeterminate"
   } else if (between >= same_genome_threshold) {
     "same_genome"
@@ -274,7 +310,18 @@ checkGenotypeConcordance <- function(snp_database,
       "The two groups are distinct genomes (concordance ", round(between, 3),
       ") and each is internally consistent. Presence/absence is a valid ",
       "genotype contrast here."),
-    indeterminate = paste0(
+    indeterminate = if (broken) paste0(
+      "MEASUREMENT INVALID: concordance (", round(between, 3), ") is significantly ",
+      "BELOW the chance rate for these genotype distributions (",
+      round(between_chance, 3), ", z = ", round(z_chance, 1), "). Independence is ",
+      "the floor for genotype - unrelated individuals land near chance, relatives ",
+      "above it - so anti-correlation means the calls are not tracking genotype. ",
+      "Most often the site set is biased: check that both ",
+      "groups came from the same cellsnp-lite settings, since --minMAF filtering ",
+      "removes the invariant sites where genomes agree. Also check that depth is ",
+      "sufficient to bin (see min_dp) and that ad_matrix/dp_matrix are not ",
+      "transposed or mismatched. Do NOT interpret this as distant genomes.")
+    else paste0(
       "Genotype relationship could not be resolved",
       if (!is.na(between)) paste0(" (concordance ", round(between, 3),
                                   ", between the same- and different-genome thresholds)")
@@ -290,6 +337,11 @@ checkGenotypeConcordance <- function(snp_database,
     cat(sprintf("  between groups        : %s over %s jointly callable sites\n",
                 ifelse(is.na(between), "NA", round(between, 3)),
                 ifelse(is.na(n_shared), "NA", n_shared)))
+    cat(sprintf("  chance rate           : %s%s\n",
+                ifelse(is.na(between_chance), "NA", round(between_chance, 3)),
+                if (isTRUE(broken))
+                  sprintf("   <-- observed is BELOW chance (z = %.1f)", z_chance)
+                else ""))
     cat(sprintf("  within group1 (min)   : %s\n", ifelse(is.na(w1), "NA (not splittable)", round(w1, 3))))
     cat(sprintf("  within group2 (min)   : %s\n", ifelse(is.na(w2), "NA (not splittable)", round(w2, 3))))
     cat(sprintf("  distinct genomes      : %d vs %d\n", n_gen1, n_gen2))
@@ -306,6 +358,8 @@ checkGenotypeConcordance <- function(snp_database,
   }
 
   list(concordance = between,
+       chance_concordance = between_chance,
+       chance_z = z_chance,
        n_shared_sites = n_shared,
        within1 = w1,
        within2 = w2,

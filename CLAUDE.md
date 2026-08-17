@@ -717,6 +717,66 @@ genes — so `plotSNPs()`, `findDESNPs()` and everything gene-level is unaffecte
 as warnings on a green suite, and two only when a human looked at a rendered
 plot. Executable documentation is a test harness.
 
+## cellsnp-lite Settings Must Match Across Runs (08/17/26)
+
+**`--minMAF` is the trap.** Vireo's docs suggest `--minMAF 0.1` for mode 1a, and
+it looks harmless. It drops sites that are invariant *across the sample* — which
+are precisely the sites where two genomes AGREE — so any concordance computed
+against a run at different settings is meaningless.
+
+Measured on 10292-CLAD, same BAM, two runs:
+
+| | `--minMAF 0.1` | defaults (`--minMAF 0`) |
+|---|---|---|
+| sites | 28,632 | **67,345** |
+| sites at AF < 0.05 | 0.1% | ~46% (as cohort) |
+| median site AF | 0.425 | ~0.14 |
+| concordance vs other genome | **0.258** | **0.617** |
+| chance rate | 0.434 | 0.403 |
+| z vs chance | **-34** | **+54** |
+| Vireo unassigned | 52% | 41% |
+| Vireo allelic rates | 0.096/0.469/0.867 | 0.006/0.445/0.974 |
+
+The filtered run reported concordance *below chance* with hom-ref agreement 20x
+depleted, and the old guard called it `different_genomes`. It also distorted
+Vireo's own genotype model, not just the concordance.
+
+**The 32-sample cohort was run at plain defaults** (`--minCOUNT 20`,
+`--minMAF 0.00`, `--minLEN 30`, `--minMAPQ 20`). Any sample added to it must be
+too. See `/mnt/d-drive/CLAD_spatial/cellsnp/run_10292.sh` for the working
+invocation.
+
+## Guard Fix - Anti-Correlation Check (08/17/26)
+
+`checkGenotypeConcordance()` tested low concordance only against an upper bound,
+so it read *any* low value as strong evidence of distinct genomes. It returned
+`different_genomes` for a measurement that was arithmetically impossible.
+
+**The first fix attempt was wrong and the test suite caught it.** Flagging
+`concordance <= chance` fails because two *unrelated* individuals are
+near-independent draws per site and therefore land **at** chance; only relatives
+land above it. That version would have rejected the valid donor-vs-recipient
+contrasts the guard exists to approve. What no genome pair can do is land
+materially *below* chance, which requires anti-correlation.
+
+So the check is a binomial departure, `z < -5`, computed from the two
+pseudobulks' own marginal genotype distributions — no magic constant. The two
+real cases separate by ~90 SD: the broken run at z = -34, the valid contrast at
+z = +54. New outputs `chance_concordance` and `chance_z`; the invalid-measurement
+message names what to check, in order — matched cellsnp settings, then depth,
+then transposed matrices.
+
+Also fixed a fixture weakness this exposed: `A`/`B`/`C` in
+`test-checkGenotypeConcordance.R` disagreed in a contiguous block, so concordance
+depended on which sites a test subset. The sex-chromosome test masks the first
+1,000, and its unmasked half sat below chance. Disagreeing sites are now spread
+across the genome, making concordance invariant to subsetting.
+
+Suite 197 -> **205 assertions**, `test-checkGenotypeConcordance.R` 32 -> 40.
+
+**Ninth silent-wrong-output defect in this package.** Like most of the others it
+emitted a confident verdict rather than a complaint.
+
 ## Science Direction (as of 08/17/26)
 
 **What the package is:** a multi-genome single-cell analysis layer on top of
@@ -763,12 +823,35 @@ multi-donor experiment.
    which is what actually distinguishes the two explanations, but n = 2 patients
    and it cannot carry more than that.
 
-   **Assay caveat:** single-**nuclei** 3′v4 is a third chemistry for this project.
-   Reads run 5.6–49.3% intronic and 3.4–15.6% intergenic with median UMI
-   782–3,167, so the variant catalog *expands* outside exons while per-cell depth
-   drops. The 0.99 cross-chemistry concordance was measured on cytoplasmic 3′ vs
-   5′ only and does **not** transfer across the nuclei/whole-cell boundary
-   unverified.
+   **RUN 08/17/26 — the deconvolution works. Gate passed on 10292-CLAD.**
+
+   | | 10292 (nuclei 3′v4) | cohort (whole-cell 3′) |
+   |---|---|---|
+   | concordance, two genomes one library | **0.617** | 0.611 |
+   | chance rate / z above chance | 0.403 / **+54.1** | — |
+   | composition margin | 0.828 | ~0.9 |
+
+   donor0 was 96.2% structural (4,957/196), donor1 86.6% immune (3,766/585) — the
+   graft/recipient split reproduced in nuclei. 9,552 of 20,890 nuclei confidently
+   assigned. Artefacts in `/mnt/d-drive/CLAD_spatial/cellsnp/10292-CLAD/`.
+
+   **Vireo's arbitrary labels flipped between two runs of the same BAM on the same
+   day** — donor0 was immune-dominant in the morning run and structural in the
+   afternoon one, the only difference being a cellsnp filter. Live confirmation of
+   [[vireo-donor-labels-arbitrary]]; always re-run `inferDonorType()`.
+
+   **Assay caveat, corrected by measurement.** Single-**nuclei** 3′v4 is a third
+   chemistry here. Reads run 5.6–49.3% intronic and 3.4–15.6% intergenic with
+   median UMI 782–3,167. I had predicted the variant catalog would *expand*
+   outside exons; **it contracts, by roughly 5x** — 67,345 sites from 20,890 nuclei
+   against CLAD2's 327,307 from 24,835 whole cells. Breadth does not compensate for
+   depth: nuclei spread reads over more positions, so fewer clear `--minCOUNT 20`.
+   Vireo correspondingly leaves **41% unassigned** against a cohort range of 3–8%.
+   The 0.99 cross-chemistry concordance was measured on cytoplasmic 3′ vs 5′ only
+   and still has not been tested across the nuclei/whole-cell boundary — KM-CLAD is
+   the same patient as TBX4/TBX5 and is the only route to that check, but it is
+   also the poor-quality library, so it needs depth-matched controls (thin TBX4 to
+   KM's depth) or the comparison confounds assay with depth.
 
 2. **Compartment-specific chimerism vs clinical outcome.** One test per hypothesis,
    so the permutation ceiling does not bite. Clinical metadata is in the two

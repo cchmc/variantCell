@@ -44,10 +44,16 @@ make_geno_db <- function(genotypes, assign, n_sites = 2000) {
 # Two individuals sharing 60% of their genotype calls -- below the 0.80
 # different-genome threshold, and in the same range as the ~0.61 observed
 # between real donor/recipient pairs.
+# The disagreeing sites are SPREAD across the genome rather than placed in a
+# contiguous block, so concordance is invariant to which sites a test happens to
+# subset (the sex-chromosome test masks the first 1000). A contiguous block made
+# concordance depend on the mask, and on the non-masked half it fell below the
+# chance rate - an artifact no real genome pair produces.
 n_sites <- 2000
+i_site  <- seq_len(n_sites)
 A <- rep(c(0L, 1L, 2L), length.out = n_sites)
-B <- A; B[1201:n_sites] <- (A[1201:n_sites] + 1L) %% 3L   # concordance 0.60
-C <- A; C[801:n_sites]  <- (A[801:n_sites]  + 2L) %% 3L   # concordance 0.40
+B <- A; sel <- (i_site %% 5L) < 2L; B[sel] <- (A[sel] + 1L) %% 3L  # concordance 0.60
+C <- A; sel <- (i_site %% 5L) < 3L; C[sel] <- (A[sel] + 2L) %% 3L  # concordance 0.40
 
 test_that("two distinct genomes are called different_genomes", {
   db <- make_geno_db(list(A = A, B = B),
@@ -280,4 +286,72 @@ test_that("the guard honours the donor_type restriction used for aggregation", {
   # must be measuring a different set than the unrestricted call.
   expect_lt(sum(sub$n_cells1, sub$n_cells2),
             sum(full$n_cells1, full$n_cells2))
+})
+
+
+# --- below-chance concordance, added 2026-08-17 ------------------------------
+#
+# Found on real data: a cellsnp-lite run at --minMAF 0.1 against a cohort run at
+# the default --minMAF 0. The filter removes sites that are invariant across the
+# sample, which are exactly the sites where two genomes AGREE, so concordance
+# came out at 0.258 against a chance rate of 0.434 -- below chance -- with
+# hom-ref agreement 20x depleted. The guard read that as "different_genomes",
+# because low concordance had only ever been tested against an upper bound.
+#
+# No pair of real genomes can agree less often than chance: unrelated people
+# share the bulk of common variants. Below-chance therefore means the calls are
+# not tracking genotype, and it must invalidate the verdict rather than
+# strengthen it.
+
+test_that("below-chance concordance is reported invalid, not different_genomes", {
+  # Anti-correlated genotypes: where one individual is hom-ref the other is het,
+  # and vice versa. Never jointly hom-ref, which is what the --minMAF filter did
+  # to the real data. Concordance is 0 while chance agreement is 0.5.
+  n <- 2000
+  a <- rep(c(0L, 1L), length.out = n)
+  b <- rep(c(1L, 0L), length.out = n)
+
+  db <- make_geno_db(
+    list(A = a, B = b),
+    data.frame(individual = c("A", "B"), sample_id = c("S1", "S2"),
+               group = c("g1", "g2"), n_cells = c(120, 120),
+               stringsAsFactors = FALSE))
+
+  cm <- db$cell_metadata
+  res <- checkGenotypeConcordance(
+    db, which(cm$group == "g1"), which(cm$group == "g2"), verbose = FALSE)
+
+  expect_lt(res$concordance, res$chance_concordance)
+  expect_lt(res$chance_z, -5)
+  expect_identical(res$verdict, "indeterminate")
+  expect_match(res$message, "MEASUREMENT INVALID")
+  expect_match(res$message, "minMAF")
+  # The old behaviour, which this replaces.
+  expect_false(identical(res$verdict, "different_genomes"))
+})
+
+
+test_that("genuinely different genomes still beat chance and still pass", {
+  # Two unrelated individuals: independent genotypes, sharing most sites as
+  # hom-ref the way real common-variant panels do. Concordance must exceed the
+  # chance rate, so the new check must not fire.
+  n <- 2000
+  i <- seq_len(n)
+  # Deterministic, no RNG: mostly hom-ref in both, with differing subsets het.
+  a <- ifelse(i %% 5 == 0, 1L, ifelse(i %% 23 == 0, 2L, 0L))
+  b <- ifelse(i %% 7 == 0, 1L, ifelse(i %% 29 == 0, 2L, 0L))
+
+  db <- make_geno_db(
+    list(A = a, B = b),
+    data.frame(individual = c("A", "B"), sample_id = c("S1", "S2"),
+               group = c("g1", "g2"), n_cells = c(120, 120),
+               stringsAsFactors = FALSE))
+
+  cm <- db$cell_metadata
+  res <- checkGenotypeConcordance(
+    db, which(cm$group == "g1"), which(cm$group == "g2"), verbose = FALSE)
+
+  # Near or above chance, never materially below it.
+  expect_gt(res$chance_z, -5)
+  expect_false(grepl("MEASUREMENT INVALID", res$message))
 })
