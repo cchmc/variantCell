@@ -717,12 +717,12 @@ genes — so `plotSNPs()`, `findDESNPs()` and everything gene-level is unaffecte
 as warnings on a green suite, and two only when a human looked at a rendered
 plot. Executable documentation is a test harness.
 
-## Science Direction (as of 08/12/26)
+## Science Direction (as of 08/17/26)
 
 **What the package is:** a multi-genome single-cell analysis layer on top of
 cellsnp-lite/Vireo, with a transplant-specific identification module. It consumes
 their output and replaces neither. `07-donor-inference.R` is the only
-transplant-specific part — 349 of 8,364 lines. Everything else applies to any
+transplant-specific part — 349 of 7,665 lines. Everything else applies to any
 multi-donor experiment.
 
 **Closed. Do not re-open without new data:**
@@ -738,10 +738,38 @@ multi-donor experiment.
 
 **Open, ranked:**
 
-1. **Spatial chimerism** (`CLAD_spatial`, shipped Mar 2026). Directly resolves the
-   airway-restricted recipient epithelium question — sampling artifact vs
-   anastomotic migration. Novel; nobody maps donor/recipient genotype spatially in
-   lung transplant. Blocked on locating the spatial BAMs.
+1. **Spatial chimerism** (`/mnt/d-drive/CLAD_spatial`, 189 GB, shipped Mar 2026,
+   pipeline complete May 2026). Directly resolves the airway-restricted recipient
+   epithelium question — sampling artifact vs anastomotic migration. Novel; nobody
+   maps donor/recipient genotype spatially in lung transplant.
+
+   **Not blocked** — corrected 08/17/26. The platform is **Curio TREKKER**, which
+   is spatial *positioning* on top of an ordinary 10x single-nuclei 3′v4 run, not a
+   spot-based assay: it maps 10x cell barcodes to bead spatial barcodes. Genotype
+   and transcriptome both come from the standard `possorted_genome_bam.bam`, which
+   is present for all four samples, and position joins on the cell barcode. So the
+   existing pipeline runs unmodified — cellsnp-lite on the BAM, Vireo,
+   `inferDonorType()`, then attach `donor_type` to the TREKKER coordinates. **No
+   per-spot deconvolution and no new method.** The earlier "blocked on locating the
+   spatial BAMs" note was wrong on both counts.
+
+   What actually limits it is n. Confidently positioned nuclei: 20129-CTRL 7,695
+   (21.2%), 10292-CLAD 2,261 (10.8%), 20264-CTRL 750 (32.0%), KM-CLAD 1,225
+   (34.3%). **Only the two CLAD samples are transplants** — the controls are
+   non-transplant donor lung, single-genome, and `checkGenotypeConcordance()` will
+   correctly call them `same_genome`. At 3.5% recipient epithelium that is order
+   **10–25 positioned recipient epithelial nuclei per CLAD sample**: enough for the
+   geometric question (one contiguous airway vs dispersed through parenchyma),
+   which is what actually distinguishes the two explanations, but n = 2 patients
+   and it cannot carry more than that.
+
+   **Assay caveat:** single-**nuclei** 3′v4 is a third chemistry for this project.
+   Reads run 5.6–49.3% intronic and 3.4–15.6% intergenic with median UMI
+   782–3,167, so the variant catalog *expands* outside exons while per-cell depth
+   drops. The 0.99 cross-chemistry concordance was measured on cytoplasmic 3′ vs
+   5′ only and does **not** transfer across the nuclei/whole-cell boundary
+   unverified.
+
 2. **Compartment-specific chimerism vs clinical outcome.** One test per hypothesis,
    so the permutation ceiling does not bite. Clinical metadata is in the two
    LungChat .docx files. Check first whether the published decay is
@@ -757,10 +785,23 @@ multi-donor experiment.
    scDblFinder against a real labelled set rather than simulation.
 5. **Recoding sites** — the one remaining differential idea, small enough that
    per-site testing is affordable under correction. `findDEAlleleFraction(sites=)`.
+6. **Within-gene depth ratios (APA / 3'UTR length), and intergenic sites.**
+   Surfaced by the 08/12 measurement and *not currently reachable by any
+   function* — `findDESNPs()` tests one site against groups, never sites against
+   each other. A median gene carries 13 covered sites, so the ratio between them
+   is a within-gene, within-cell measurement that needs no multiple-testing
+   correction across genes and no between-patient comparison. ~12.5% of sites sit
+   outside annotated genes, which gene counts cannot see at all. This is the only
+   idea on the list that is unique to variant-level data rather than merely
+   possible with it. Needs a new function; nothing to reuse.
 
-**Engineering priority, above all of the above:** make the vignettes executable.
-All four are `eval=FALSE` across 24 chunks, so nothing in the repo runs the public
-API end to end. That is the systemic reason defects survive here — three of four
-DE-SNP bugs, plus both import bugs found on 08-12, produced wrong output or
-warnings rather than errors. `05-plots.R` is 1,142 lines with no verification of
-any kind and would benefit most.
+**Engineering priority:** the vignette work is done (08/13/26) — 71 of 78 chunks
+execute, the suite went 102 → 197 assertions, and it immediately found four silent
+defects. That closes the systemic reason defects survived here.
+
+What remains is the **roxygen 8 / R6 documentation debt**. `man/*.Rd` and
+`NAMESPACE` are now hand-maintained, so every new export takes two manual edits
+and one stray `devtools::document()` deletes 15 man files (see the build note
+above). Fixing the R6 doc blocks so roxygen 8 renders them is unstarted, and it is
+the thing most likely to bite next. It is still below the science items — it costs
+correctness of the *docs*, not of the results.
